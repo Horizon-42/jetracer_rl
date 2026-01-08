@@ -4,7 +4,7 @@ from typing import Callable, Dict
 
 import gymnasium as gym
 
-from donkey_rl.compat import patch_old_gym_render_mode
+from donkey_rl.compat import patch_gym_donkeycar_stop_join, patch_old_gym_render_mode
 from donkey_rl.obs_preprocess import ObsPreprocess
 from donkey_rl.rewards import (
     DonkeyTrackLimitRewardConfig,
@@ -27,6 +27,7 @@ def make_donkey_env(
     """Create a DonkeyCar env through Gymnasium+Shimmy."""
 
     patch_old_gym_render_mode()
+    patch_gym_donkeycar_stop_join()
 
     # Ensure old-gym envs are registered.
     import gym_donkeycar  # noqa: F401

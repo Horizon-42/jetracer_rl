@@ -86,12 +86,23 @@ def main() -> None:
 
     sb3_logger = configure(folder=args.log_dir, format_strings=format_strings)
 
+    policy = "CnnPolicy"
+    policy_kwargs = {"normalize_images": False}
+    if getattr(args, "use_latent", False):
+        ae_ckpt = str(getattr(args, "ae_checkpoint", "") or "").strip()
+        if not ae_ckpt:
+            raise RuntimeError("--use-latent requires --ae-checkpoint")
+        from donkey_rl.sb3_latent_extractor import latent_policy_kwargs
+
+        policy = "MlpPolicy"
+        policy_kwargs = latent_policy_kwargs(ae_checkpoint=ae_ckpt, freeze=not bool(getattr(args, "train_encoder", False)))
+
     model = PPO(
-        policy="CnnPolicy",
+        policy=policy,
         env=train_env,
         verbose=1,
         seed=args.seed,
-        policy_kwargs={"normalize_images": False},
+        policy_kwargs=policy_kwargs,
         n_steps=1024,
         batch_size=256,
         learning_rate=3e-4,

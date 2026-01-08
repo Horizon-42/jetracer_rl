@@ -75,6 +75,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--obs-height", type=int, default=84)
     parser.add_argument("--total-timesteps", type=int, default=200_000)
 
+    # Latent features (autoencoder)
+    parser.add_argument(
+        "--use-latent",
+        action="store_true",
+        help="Use a pretrained autoencoder encoder as features extractor (MlpPolicy).",
+    )
+    parser.add_argument(
+        "--ae-checkpoint",
+        type=str,
+        default="",
+        help="Path to AE checkpoint produced by train_autoencoder.py (e.g. ae_runs/ae_*/best_ae.pt).",
+    )
+    parser.add_argument(
+        "--train-encoder",
+        action="store_true",
+        help="If set, finetune encoder together with PPO (default: freeze encoder).",
+    )
+
     # Debug mode
     parser.add_argument(
         "--debug",
