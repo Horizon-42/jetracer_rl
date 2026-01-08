@@ -1,2 +1,4 @@
 *.zip
 tensorboard_logs
+
+__pycache__

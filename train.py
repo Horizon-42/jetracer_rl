@@ -40,7 +40,7 @@ else:
     print("WARNING: CUDA not found. Training will be slow on CPU.")
 
 if __name__ == "__main__":
-    _patch_old_gym_render_mode()
+    # _patch_old_gym_render_mode()
     
     # --- 1. 环境配置 ---
     # 请修改为你的模拟器路径
@@ -67,7 +67,8 @@ if __name__ == "__main__":
     print("正在连接模拟器...")
     env = gym.make(
         "GymV21Environment-v0",
-        env_id="donkey-generated-roads-v0",
+        # env_id="donkey-generated-roads-v0",
+        env_id="donkey-waveshare-v0",
         make_kwargs={"conf": conf},
     )
 
