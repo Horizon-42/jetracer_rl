@@ -71,8 +71,6 @@ def main() -> None:
                 offtrack_step_penalty=args.offtrack_step_penalty,
                 obs_width=args.obs_width,
                 obs_height=args.obs_height,
-                preprocess_distort=bool(getattr(args, "preprocess_distort", False)),
-                preprocess_color_distort=bool(getattr(args, "preprocess_color_distort", False)),
             )
         ]
     )
@@ -136,8 +134,6 @@ def main() -> None:
                     offtrack_step_penalty=args.offtrack_step_penalty,
                     obs_width=args.obs_width,
                     obs_height=args.obs_height,
-                    preprocess_distort=bool(getattr(args, "preprocess_distort", False)),
-                    preprocess_color_distort=bool(getattr(args, "preprocess_color_distort", False)),
                 )
             ]
         )

@@ -43,7 +43,7 @@ def make_donkey_env(
         "font_size": 100,
         "cam_config":{
             "img_w": 320,
-            "img_h": 320,
+            "img_h": 240,
             "img_d": 3,
             "img_enc": "JPG",
         }
@@ -78,8 +78,6 @@ def build_env_fn(
     offtrack_step_penalty: float,
     obs_width: int,
     obs_height: int,
-    preprocess_distort: bool,
-    preprocess_color_distort: bool,
 ) -> Callable[[], gym.Env]:
     def _thunk() -> gym.Env:
         env = make_donkey_env(
@@ -107,13 +105,7 @@ def build_env_fn(
         else:
             raise ValueError(f"Unknown reward_type: {reward_type}")
 
-        env = ObsPreprocess(
-            env,
-            width=obs_width,
-            height=obs_height,
-            enable_distortion=preprocess_distort,
-            enable_color_distortion=preprocess_color_distort,
-        )
+        env = ObsPreprocess(env, width=obs_width, height=obs_height)
         return env
 
     return _thunk

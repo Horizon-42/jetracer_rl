@@ -75,18 +75,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--obs-height", type=int, default=84)
     parser.add_argument("--total-timesteps", type=int, default=200_000)
 
-    # Observation preprocessing (domain-gap tweaks)
-    parser.add_argument(
-        "--preprocess-distort",
-        action="store_true",
-        help="Apply JetRacer lens distortion (inverse of real-image undistort calibration).",
-    )
-    parser.add_argument(
-        "--preprocess-color-distort",
-        action="store_true",
-        help="Apply JetRacer color distortion (inverse of real-image color correction).",
-    )
-
     # Debug mode
     parser.add_argument(
         "--debug",

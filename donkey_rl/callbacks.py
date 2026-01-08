@@ -91,8 +91,8 @@ class DebugObsDumpCallback:
     ------------
     - During SB3 training, `_on_step` has access to `new_obs` (the observation after
       taking an action).
-    - Our obs preprocess wrapper caches three stages: raw, distorted, resized.
-    - We save all three as PNGs.
+    - Our obs preprocess wrapper caches a resized RGB frame.
+    - We save that, plus the processed CHW observation from SB3.
 
     This is designed for quick sanity checks:
     - Are we getting images at all?
@@ -131,8 +131,6 @@ class DebugObsDumpCallback:
                     import numpy as np
                     import cv2
 
-                    raw = None
-                    distorted = None
                     resized = None
 
                     def _save_rgb_u8(frame_rgb: np.ndarray, name: str) -> None:
@@ -148,19 +146,23 @@ class DebugObsDumpCallback:
                     # Prefer saving cached stages from the obs preprocess wrapper.
                     if hasattr(self.training_env, "envs") and self.training_env.envs:
                         env0 = self.training_env.envs[0]
-                        raw = getattr(env0, "last_raw_observation", None)
-                        distorted = getattr(env0, "last_distorted_observation", None)
                         resized = getattr(env0, "last_resized_observation", None)
-
-                    if raw is not None:
-                        _save_rgb_u8(raw, "raw")
-                    if distorted is not None:
-                        _save_rgb_u8(distorted, "distort")
                     if resized is not None:
                         _save_rgb_u8(resized, "resized")
 
+                    # Also save the processed observation SB3 sees (CHW float32 [0,1]).
+                    obs = self.locals.get("new_obs")
+                    if obs is not None:
+                        try:
+                            frame = np.asarray(obs[0])  # first env
+                            if frame.ndim == 3 and frame.shape[0] == 3:
+                                hwc = (np.clip(frame, 0.0, 1.0).transpose(1, 2, 0) * 255.0).astype(np.uint8)
+                                _save_rgb_u8(hwc, "proc")
+                        except Exception:
+                            pass
+
                     # If we saved at least one image, bump counter.
-                    if raw is not None or distorted is not None or resized is not None:
+                    if resized is not None:
                         self._saved += 1
                 except Exception:
                     # Never crash training from debug dumping.
