@@ -445,7 +445,13 @@ def main() -> None:
     # You can increase this once everything is stable.
     parser.add_argument("--n-envs", type=int, default=1, help="Number of parallel environments (VecEnv)")
 
-    parser.add_argument("--log-dir", type=str, default="runs/centerline")
+    log_dir = "tensorboard_logs/JetRacer"
+    i = 1
+    while os.path.exists(log_dir):
+        log_dir = f"tensorboard_logs/JetRacer_{i}"
+        i += 1
+
+    parser.add_argument("--log-dir", type=str, default=log_dir)
     parser.add_argument("--save-path", type=str, default="models/centerline_ppo.zip")
 
     # Donkey rendering is handled by the Unity simulator; SB3 won't render by default.

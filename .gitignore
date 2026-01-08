@@ -2,3 +2,9 @@
 tensorboard_logs
 
 __pycache__
+
+runs
+
+logs
+
+unitylog.*
