@@ -12,7 +12,7 @@ from donkey_rl.rewards import (
     JetRacerRaceRewardWrapperTrackLimit,
     RaceRewardConfig,
 )
-from donkey_rl.wrappers import JetRacerWrapper
+from donkey_rl.wrappers import JetRacerWrapper, RandomFrictionWrapper
 
 
 def make_donkey_env(
@@ -42,6 +42,8 @@ def make_donkey_env(
         "body_rgb": (255, 165, 0),
         "car_name": "JetRacerAgent",
         "font_size": 100,
+        # Keep env observation_space consistent with the images requested from the sim.
+        "cam_resolution": (240, 320, 3),
         "cam_config":{
             "img_w": 320,
             "img_h": 240,
@@ -79,6 +81,13 @@ def build_env_fn(
     offtrack_step_penalty: float,
     obs_width: int,
     obs_height: int,
+    domain_rand: bool,
+    aug_brightness: float,
+    aug_contrast: float,
+    aug_noise_std: float,
+    random_friction: bool,
+    friction_min: float,
+    friction_max: float,
 ) -> Callable[[], gym.Env]:
     def _thunk() -> gym.Env:
         env = make_donkey_env(
@@ -89,6 +98,10 @@ def build_env_fn(
             fast_mode=fast_mode,
             max_cte=max_cte,
         )
+
+        # Apply friction randomization in Donkey action space: [steer, throttle]
+        if random_friction:
+            env = RandomFrictionWrapper(env, min_scale=friction_min, max_scale=friction_max)
 
         env = JetRacerWrapper(env, steer_scale=1.0, throttle_scale=1.0)
 
@@ -106,7 +119,15 @@ def build_env_fn(
         else:
             raise ValueError(f"Unknown reward_type: {reward_type}")
 
-        env = ObsPreprocess(env, width=obs_width, height=obs_height)
+        env = ObsPreprocess(
+            env,
+            width=obs_width,
+            height=obs_height,
+            domain_rand=domain_rand,
+            aug_brightness=aug_brightness,
+            aug_contrast=aug_contrast,
+            aug_noise_std=aug_noise_std,
+        )
         return env
 
     return _thunk

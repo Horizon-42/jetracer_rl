@@ -23,7 +23,17 @@ class ObsPreprocess(gym.ObservationWrapper):
     - last_resized_observation: resized frame (HWC uint8)
     """
 
-    def __init__(self, env: gym.Env, *, width: int = 84, height: int = 84):
+    def __init__(
+        self,
+        env: gym.Env,
+        *,
+        width: int = 84,
+        height: int = 84,
+        domain_rand: bool = False,
+        aug_brightness: float = 0.25,
+        aug_contrast: float = 0.25,
+        aug_noise_std: float = 0.02,
+    ):
         super().__init__(env)
 
         self._width = int(width)
@@ -42,6 +52,11 @@ class ObsPreprocess(gym.ObservationWrapper):
         self.last_raw_observation: Optional[np.ndarray] = None
         self.last_resized_observation: Optional[np.ndarray] = None
 
+        self._domain_rand = bool(domain_rand)
+        self._aug_brightness = float(aug_brightness)
+        self._aug_contrast = float(aug_contrast)
+        self._aug_noise_std = float(aug_noise_std)
+
     def observation(self, observation: np.ndarray) -> np.ndarray:
         try:
             raw = np.asarray(observation)
@@ -58,5 +73,24 @@ class ObsPreprocess(gym.ObservationWrapper):
         except Exception:
             self.last_resized_observation = None
 
-        chw = resized.transpose(2, 0, 1).astype(np.float32) / 255.0
+        x = resized.astype(np.float32) / 255.0
+        if self._domain_rand:
+            # Contrast: multiply around 1.0
+            if self._aug_contrast > 0:
+                c = 1.0 + float(np.random.uniform(-self._aug_contrast, self._aug_contrast))
+                x = x * c
+
+            # Brightness: additive offset
+            if self._aug_brightness > 0:
+                b = float(np.random.uniform(-self._aug_brightness, self._aug_brightness))
+                x = x + b
+
+            # Noise: additive Gaussian
+            if self._aug_noise_std > 0:
+                n = np.random.normal(loc=0.0, scale=self._aug_noise_std, size=x.shape).astype(np.float32)
+                x = x + n
+
+            x = np.clip(x, 0.0, 1.0)
+
+        chw = x.transpose(2, 0, 1).astype(np.float32)
         return chw

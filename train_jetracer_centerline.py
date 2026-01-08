@@ -71,6 +71,13 @@ def main() -> None:
                 offtrack_step_penalty=args.offtrack_step_penalty,
                 obs_width=args.obs_width,
                 obs_height=args.obs_height,
+                domain_rand=bool(getattr(args, "domain_rand", False)),
+                aug_brightness=float(getattr(args, "aug_brightness", 0.25)),
+                aug_contrast=float(getattr(args, "aug_contrast", 0.25)),
+                aug_noise_std=float(getattr(args, "aug_noise_std", 0.02)),
+                random_friction=bool(getattr(args, "random_friction", False)),
+                friction_min=float(getattr(args, "friction_min", 0.6)),
+                friction_max=float(getattr(args, "friction_max", 1.0)),
             )
         ]
     )
@@ -145,6 +152,14 @@ def main() -> None:
                     offtrack_step_penalty=args.offtrack_step_penalty,
                     obs_width=args.obs_width,
                     obs_height=args.obs_height,
+                    # Keep evaluation deterministic by default.
+                    domain_rand=False,
+                    aug_brightness=float(getattr(args, "aug_brightness", 0.25)),
+                    aug_contrast=float(getattr(args, "aug_contrast", 0.25)),
+                    aug_noise_std=float(getattr(args, "aug_noise_std", 0.02)),
+                    random_friction=False,
+                    friction_min=1.0,
+                    friction_max=1.0,
                 )
             ]
         )
