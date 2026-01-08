@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional, Tuple
 
@@ -85,6 +86,20 @@ class RaceRewardConfig:
 
     # Big penalty when episode ends due to invalid pose / off-road
     offroad_penalty: float = 50.0
+
+
+@dataclass(frozen=True)
+class DonkeyTrackLimitRewardConfig:
+    """Extra reward terms for enforcing 'stay on track' in DonkeyCar.
+
+    Uses `cte` (cross-track error) from info.
+    """
+
+    # Consider off-track when |cte| > max_cte
+    max_cte: float = 8.0
+
+    # Per-step penalty while off-track (even before termination)
+    offtrack_step_penalty: float = 5.0
 
 
 class JetRacerWrapper(gym.ActionWrapper):
@@ -219,6 +234,98 @@ class JetRacerRaceRewardWrapper(gym.Wrapper):
             return float(raw[0]), float(raw[1])
         return 0.0, 0.0
 
+
+class JetRacerRaceRewardWrapperTrackLimit(gym.Wrapper):
+    """New reward variant: keep original shaping + explicitly enforce staying on track.
+
+    This wrapper does NOT modify `JetRacerRaceRewardWrapper`.
+    It adds a per-step penalty when the car is outside the drivable area, estimated by
+    `abs(cte) > max_cte`.
+
+    Info is stored under `info["race_reward_track"]`.
+    """
+
+    def __init__(
+        self,
+        env: gym.Env,
+        base_cfg: RaceRewardConfig = RaceRewardConfig(),
+        track_cfg: DonkeyTrackLimitRewardConfig = DonkeyTrackLimitRewardConfig(),
+    ):
+        super().__init__(env)
+        self.base_cfg = base_cfg
+        self.track_cfg = track_cfg
+        self._prev_steering: float = 0.0
+
+    def step(self, action):
+        result = self.env.step(action)
+        if len(result) == 5:
+            obs, _base_reward, terminated, truncated, info = result
+            done = bool(terminated or truncated)
+        else:
+            obs, _base_reward, done, info = result
+            terminated, truncated = bool(done), False
+
+        info_dict = dict(info) if isinstance(info, dict) else {}
+
+        cte = info_dict.get("cte")
+        speed = info_dict.get("speed", 0.0)
+        hit = info_dict.get("hit")
+
+        throttle, steering = self._extract_jetracer_raw_action()
+
+        # Reuse the same structure as the original reward
+        shaped_reward = 0.0
+
+        if cte is not None:
+            dist = float(cte)
+            angle_rad = 0.0
+            dot_dir = 1.0
+
+            progress = max(0.0, dot_dir) * float(speed)
+            shaped_reward += self.base_cfg.w_progress * progress
+            shaped_reward += self.base_cfg.w_speed * float(speed)
+            shaped_reward -= self.base_cfg.w_center * abs(dist)
+            shaped_reward -= self.base_cfg.w_heading * abs(angle_rad)
+        else:
+            shaped_reward -= 1.0
+
+        shaped_reward -= self.base_cfg.w_steer * float(steering**2)
+        shaped_reward -= self.base_cfg.w_steer_rate * float((steering - self._prev_steering) ** 2)
+        self._prev_steering = float(steering)
+
+        # New: explicit track constraint
+        offtrack = False
+        if cte is not None:
+            offtrack = abs(float(cte)) > float(self.track_cfg.max_cte)
+            if offtrack:
+                shaped_reward -= float(self.track_cfg.offtrack_step_penalty)
+
+        # Terminal penalty (same spirit as original)
+        if done:
+            if offtrack or (isinstance(hit, str) and hit != "none"):
+                shaped_reward -= float(self.base_cfg.offroad_penalty)
+
+        info_dict["race_reward_track"] = {
+            "reward": float(shaped_reward),
+            "speed": float(speed),
+            "throttle": float(throttle),
+            "steering": float(steering),
+            "cte": None if cte is None else float(cte),
+            "max_cte": float(self.track_cfg.max_cte),
+            "offtrack": bool(offtrack),
+            "hit": hit,
+        }
+
+        if len(result) == 5:
+            return obs, float(shaped_reward), bool(terminated), bool(truncated), info_dict
+        return obs, float(shaped_reward), bool(done), info_dict
+
+    def _extract_jetracer_raw_action(self) -> Tuple[float, float]:
+        if isinstance(self.env, JetRacerWrapper) and self.env.last_raw_action is not None:
+            raw = self.env.last_raw_action
+            return float(raw[0]), float(raw[1])
+        return 0.0, 0.0
+
     @staticmethod
     def _extract_lane_position(info: Dict) -> Optional[Dict]:
         if not isinstance(info, dict):
@@ -329,7 +436,9 @@ class TrainingVizCallback:
                 if self._print_every > 0 and (self.num_timesteps % self._print_every == 0):
                     infos = self.locals.get("infos")
                     if isinstance(infos, (list, tuple)) and infos:
-                        extra = infos[0].get("race_reward") if isinstance(infos[0], dict) else None
+                        extra = None
+                        if isinstance(infos[0], dict):
+                            extra = infos[0].get("race_reward") or infos[0].get("race_reward_track")
                         if isinstance(extra, dict):
                             lane = extra.get("lane") or {}
                             dist = lane.get("dist")
@@ -350,13 +459,54 @@ class TrainingVizCallback:
         return self._impl
 
 
-def make_duckietown_env(
+class BestModelOnEpisodeRewardCallback:
+    """Save the best model based on *training* episode reward.
+
+    This is a robust alternative when you cannot run a separate evaluation environment
+    (e.g., you only run a single DonkeySim instance).
+    """
+
+    def __init__(self, save_path: str):
+        from stable_baselines3.common.callbacks import BaseCallback
+
+        class _Cb(BaseCallback):
+            def __init__(self, save_path: str):
+                super().__init__()
+                self._save_path = save_path
+                self._best = float("-inf")
+
+            def _on_step(self) -> bool:
+                infos = self.locals.get("infos")
+                if not isinstance(infos, (list, tuple)):
+                    return True
+
+                for info in infos:
+                    if not isinstance(info, dict):
+                        continue
+                    ep = info.get("episode")
+                    if isinstance(ep, dict) and "r" in ep:
+                        r = float(ep["r"])
+                        if r > self._best:
+                            self._best = r
+                            os.makedirs(os.path.dirname(self._save_path) or ".", exist_ok=True)
+                            self.model.save(self._save_path)
+                            print(f"New best train episode reward={r:.2f}; saved best to {self._save_path}")
+                return True
+
+        self._impl = _Cb(save_path=save_path)
+
+    def sb3_callback(self):
+        return self._impl
+
+
+def make_donkey_env(
     env_id: str,
     host: str,
     port: int,
     exe_path: str,
     *,
     fast_mode: bool,
+    max_cte: float,
 ) -> gym.Env:
     """Create a DonkeyCar env through Gymnasium+Shimmy."""
 
@@ -370,6 +520,7 @@ def make_duckietown_env(
         "exe_path": exe_path,
         "host": host,
         "port": int(port),
+        "max_cte": float(max_cte),
         "body_style": "donkey",
         "body_rgb": (255, 165, 0),
         "car_name": "JetRacerAgent",
@@ -395,24 +546,52 @@ def make_duckietown_env(
     return env
 
 
-def build_env_fn(args: argparse.Namespace) -> Callable[[], gym.Env]:
+def build_env_fn(
+    args: argparse.Namespace,
+    *,
+    host: str,
+    port: int,
+    exe_path: str,
+) -> Callable[[], gym.Env]:
     def _thunk() -> gym.Env:
-        env = make_duckietown_env(
+        env = make_donkey_env(
             env_id=args.env_id,
-            host=args.host,
-            port=args.port,
-            exe_path=args.exe_path,
+            host=host,
+            port=port,
+            exe_path=exe_path,
             fast_mode=args.fast,
+            max_cte=args.max_cte,
         )
         env = JetRacerWrapper(env, steer_scale=1.0, throttle_scale=1.0)
-        env = JetRacerRaceRewardWrapper(env)
+        if args.reward_type == "base":
+            env = JetRacerRaceRewardWrapper(env)
+        elif args.reward_type == "track_limit":
+            env = JetRacerRaceRewardWrapperTrackLimit(
+                env,
+                base_cfg=RaceRewardConfig(),
+                track_cfg=DonkeyTrackLimitRewardConfig(
+                    max_cte=args.max_cte,
+                    offtrack_step_penalty=args.offtrack_step_penalty,
+                ),
+            )
+        else:
+            raise ValueError(f"Unknown reward_type: {args.reward_type}")
         env = ResizeNormalizeObs(env, width=args.obs_width, height=args.obs_height)
         return env
 
     return _thunk
 
 
-def main() -> None:
+def _default_log_dir(base: str = "tensorboard_logs/JetRacer") -> str:
+    log_dir = base
+    i = 1
+    while os.path.exists(log_dir):
+        log_dir = f"{base}_{i}"
+        i += 1
+    return log_dir
+
+
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train a DonkeyCar policy (JetRacer-style actions).")
 
     parser.add_argument(
@@ -426,13 +605,74 @@ def main() -> None:
     parser.add_argument(
         "--exe-path",
         type=str,
-        default="remote",
+        default="/home/supercomputing/studys/DonkeySim/DonkeySimLinux/donkey_sim.x86_64",
         help="Path to the simulator binary, or 'remote' if you start the sim manually.",
     )
     parser.add_argument(
         "--fast",
         action="store_true",
         help="Enable faster training config (lower res + JPG + frame_skip).",
+    )
+
+    # Reward selection (do NOT change the original reward; select via this flag)
+    parser.add_argument(
+        "--reward-type",
+        type=str,
+        default="base",
+        choices=["base", "track_limit"],
+        help="Reward function: base (original) or track_limit (adds explicit off-track penalty).",
+    )
+    parser.add_argument(
+        "--max-cte",
+        type=float,
+        default=8.0,
+        help="DonkeyCar max_cte threshold used to define off-track (|cte| > max_cte).",
+    )
+    parser.add_argument(
+        "--offtrack-step-penalty",
+        type=float,
+        default=5.0,
+        help="Per-step penalty while off-track (only used for reward_type=track_limit).",
+    )
+
+    # Best model saving
+    parser.add_argument(
+        "--best-model-path",
+        type=str,
+        default="models/best_model.zip",
+        help="Where to copy the best model checkpoint.",
+    )
+
+    # Optional evaluation (requires a SECOND DonkeySim instance on a different port)
+    parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="Enable EvalCallback. Requires a separate eval simulator instance on eval-host/eval-port.",
+    )
+    parser.add_argument("--eval-host", type=str, default="127.0.0.1")
+    parser.add_argument(
+        "--eval-port",
+        type=int,
+        default=0,
+        help="Eval simulator port. Default is train port + 1.",
+    )
+    parser.add_argument(
+        "--eval-exe-path",
+        type=str,
+        default="remote",
+        help="Eval simulator binary path or 'remote' if you start eval sim manually.",
+    )
+    parser.add_argument(
+        "--eval-freq",
+        type=int,
+        default=10_000,
+        help="Evaluate every N environment steps (only when --eval is set).",
+    )
+    parser.add_argument(
+        "--n-eval-episodes",
+        type=int,
+        default=3,
+        help="Number of episodes per evaluation (only when --eval is set).",
     )
 
     parser.add_argument("--seed", type=int, default=0)
@@ -445,19 +685,27 @@ def main() -> None:
     # You can increase this once everything is stable.
     parser.add_argument("--n-envs", type=int, default=1, help="Number of parallel environments (VecEnv)")
 
-    log_dir = "tensorboard_logs/JetRacer"
-    i = 1
-    while os.path.exists(log_dir):
-        log_dir = f"tensorboard_logs/JetRacer_{i}"
-        i += 1
-
-    parser.add_argument("--log-dir", type=str, default=log_dir)
+    parser.add_argument("--log-dir", type=str, default=_default_log_dir())
     parser.add_argument("--save-path", type=str, default="models/centerline_ppo.zip")
 
     # Donkey rendering is handled by the Unity simulator; SB3 won't render by default.
     parser.add_argument("--render", action="store_true", help="Call env.render() each step (usually no-op)")
 
     args = parser.parse_args()
+    if args.eval_port == 0:
+        args.eval_port = int(args.port) + 1
+    return args
+
+
+def _sync_best_model(best_zip_path: str, target_best_path: str) -> None:
+    if not os.path.exists(best_zip_path):
+        return
+    os.makedirs(os.path.dirname(target_best_path) or ".", exist_ok=True)
+    shutil.copy2(best_zip_path, target_best_path)
+
+
+def main() -> None:
+    args = parse_args()
 
     if args.render and args.n_envs != 1:
         raise RuntimeError("--render requires --n-envs 1.")
@@ -473,6 +721,8 @@ def main() -> None:
 
     try:
         from stable_baselines3 import PPO
+        from stable_baselines3.common.callbacks import CallbackList, EvalCallback
+        from stable_baselines3.common.evaluation import evaluate_policy
         from stable_baselines3.common.logger import configure
         from stable_baselines3.common.vec_env import DummyVecEnv, VecMonitor
     except ModuleNotFoundError as e:  # pragma: no cover
@@ -485,11 +735,10 @@ def main() -> None:
             raise RuntimeError("Missing dependency: stable-baselines3. Install stable-baselines3, then re-run.") from e
         raise
 
-    env_fns = [build_env_fn(args) for _ in range(args.n_envs)]
-    vec_env = DummyVecEnv(env_fns)
+    train_env = DummyVecEnv([build_env_fn(args, host=args.host, port=args.port, exe_path=args.exe_path)])
 
     # Record episode returns/lengths so TensorBoard can plot reward curves (rollout/ep_rew_mean).
-    vec_env = VecMonitor(vec_env, filename=os.path.join(args.log_dir, "monitor.csv"))
+    train_env = VecMonitor(train_env, filename=os.path.join(args.log_dir, "monitor.csv"))
 
     # SB3 logger
     # TensorBoard is optional; fall back to stdout-only if not installed.
@@ -505,7 +754,7 @@ def main() -> None:
 
     model = PPO(
         policy="CnnPolicy",
-        env=vec_env,
+        env=train_env,
         verbose=1,
         seed=args.seed,
         policy_kwargs={"normalize_images": False},
@@ -519,12 +768,71 @@ def main() -> None:
     )
     model.set_logger(sb3_logger)
 
-    viz_cb = TrainingVizCallback(render=args.render).sb3_callback()
-    model.learn(total_timesteps=args.total_timesteps, callback=viz_cb)
-    model.save(args.save_path)
+    callbacks = [TrainingVizCallback(render=args.render).sb3_callback()]
 
-    vec_env.close()
-    print(f"Saved policy to: {args.save_path}")
+    best_zip_in_log = os.path.join(args.log_dir, "best", "best_model.zip")
+    eval_callback = None
+    eval_env = None
+
+    if args.eval:
+        # IMPORTANT: this requires a separate DonkeySim instance bound to eval-port.
+        eval_env = DummyVecEnv([build_env_fn(args, host=args.eval_host, port=args.eval_port, exe_path=args.eval_exe_path)])
+        eval_env = VecMonitor(eval_env, filename=os.path.join(args.log_dir, "eval_monitor.csv"))
+        eval_callback = EvalCallback(
+            eval_env,
+            best_model_save_path=os.path.join(args.log_dir, "best"),
+            log_path=os.path.join(args.log_dir, "eval"),
+            eval_freq=int(args.eval_freq),
+            n_eval_episodes=int(args.n_eval_episodes),
+            deterministic=True,
+            render=False,
+        )
+        callbacks.append(eval_callback)
+    else:
+        # Fallback: save best model based on training episode reward.
+        callbacks.append(BestModelOnEpisodeRewardCallback(args.best_model_path).sb3_callback())
+
+    cb = CallbackList(callbacks)
+
+    try:
+        model.learn(total_timesteps=args.total_timesteps, callback=cb)
+    except KeyboardInterrupt:
+        # Ensure we persist something useful on Ctrl+C.
+        print("Interrupted. Saving last model...")
+        model.save(args.save_path)
+
+        # If using eval, force a final evaluation so best model is updated at least once.
+        if args.eval and eval_callback is not None and eval_env is not None:
+            try:
+                mean_reward, _std = evaluate_policy(
+                    model,
+                    eval_env,
+                    n_eval_episodes=int(max(1, args.n_eval_episodes)),
+                    deterministic=True,
+                )
+                if float(mean_reward) > float(eval_callback.best_mean_reward):
+                    os.makedirs(os.path.dirname(best_zip_in_log), exist_ok=True)
+                    model.save(best_zip_in_log)
+            except Exception:
+                pass
+
+        # Copy best model to user-specified path if available.
+        _sync_best_model(best_zip_in_log, args.best_model_path)
+        raise
+    finally:
+        # Normal completion or after interrupt.
+        if os.path.exists(best_zip_in_log):
+            _sync_best_model(best_zip_in_log, args.best_model_path)
+
+        if eval_env is not None:
+            eval_env.close()
+        train_env.close()
+
+    model.save(args.save_path)
+    _sync_best_model(best_zip_in_log, args.best_model_path)
+    print(f"Saved last model to: {args.save_path}")
+    if os.path.exists(args.best_model_path):
+        print(f"Saved best model to: {args.best_model_path}")
 
 
 if __name__ == "__main__":
