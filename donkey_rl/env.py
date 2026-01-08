@@ -5,13 +5,14 @@ from typing import Callable, Dict
 import gymnasium as gym
 
 from donkey_rl.compat import patch_old_gym_render_mode
+from donkey_rl.obs_preprocess import ObsPreprocess
 from donkey_rl.rewards import (
     DonkeyTrackLimitRewardConfig,
     JetRacerRaceRewardWrapper,
     JetRacerRaceRewardWrapperTrackLimit,
     RaceRewardConfig,
 )
-from donkey_rl.wrappers import JetRacerWrapper, ResizeNormalizeObs
+from donkey_rl.wrappers import JetRacerWrapper
 
 
 def make_donkey_env(
@@ -40,6 +41,12 @@ def make_donkey_env(
         "body_rgb": (255, 165, 0),
         "car_name": "JetRacerAgent",
         "font_size": 100,
+        "cam_config":{
+            "img_w": 320,
+            "img_h": 320,
+            "img_d": 3,
+            "img_enc": "JPG",
+        }
     }
 
     if fast_mode:
@@ -71,6 +78,12 @@ def build_env_fn(
     offtrack_step_penalty: float,
     obs_width: int,
     obs_height: int,
+    preprocess_distort: bool,
+    preprocess_distort_k1: float,
+    preprocess_distort_k2: float,
+    preprocess_color_distort: bool,
+    preprocess_red_edge_strength: float,
+    preprocess_red_edge_power: float,
 ) -> Callable[[], gym.Env]:
     def _thunk() -> gym.Env:
         env = make_donkey_env(
@@ -98,7 +111,17 @@ def build_env_fn(
         else:
             raise ValueError(f"Unknown reward_type: {reward_type}")
 
-        env = ResizeNormalizeObs(env, width=obs_width, height=obs_height)
+        env = ObsPreprocess(
+            env,
+            width=obs_width,
+            height=obs_height,
+            enable_distortion=preprocess_distort,
+            distortion_k1=preprocess_distort_k1,
+            distortion_k2=preprocess_distort_k2,
+            enable_color_distortion=preprocess_color_distort,
+            red_edge_strength=preprocess_red_edge_strength,
+            red_edge_power=preprocess_red_edge_power,
+        )
         return env
 
     return _thunk

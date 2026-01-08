@@ -91,8 +91,8 @@ class DebugObsDumpCallback:
     ------------
     - During SB3 training, `_on_step` has access to `new_obs` (the observation after
       taking an action).
-    - Our env wrapper produces observations in CHW float32 in [0, 1].
-    - We convert to HWC uint8 and save PNGs.
+    - Our obs preprocess wrapper caches three stages: raw, distorted, resized.
+    - We save all three as PNGs.
 
     This is designed for quick sanity checks:
     - Are we getting images at all?
@@ -127,31 +127,41 @@ class DebugObsDumpCallback:
                 if self.num_timesteps % self._save_every != 0:
                     return True
 
-                obs = self.locals.get("new_obs")
-                if obs is None:
-                    return True
-
                 try:
                     import numpy as np
                     import cv2
 
-                    # VecEnv: obs shape is (n_envs, C, H, W). Take first env.
-                    frame = obs[0]
-                    if frame is None:
-                        return True
+                    raw = None
+                    distorted = None
+                    resized = None
 
-                    frame = np.asarray(frame)
-                    if frame.ndim != 3 or frame.shape[0] != 3:
-                        return True
+                    def _save_rgb_u8(frame_rgb: np.ndarray, name: str) -> None:
+                        frame = np.asarray(frame_rgb)
+                        if frame.ndim != 3 or frame.shape[2] != 3:
+                            return
+                        if frame.dtype != np.uint8:
+                            frame = np.clip(frame, 0, 255).astype(np.uint8)
+                        bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                        path = os.path.join(self._out_dir, f"{name}_{self.num_timesteps:07d}.png")
+                        cv2.imwrite(path, bgr)
 
-                    # CHW float [0,1] -> HWC uint8 [0,255]
-                    hwc = (np.clip(frame, 0.0, 1.0).transpose(1, 2, 0) * 255.0).astype(np.uint8)
-                    # OpenCV expects BGR for correct colors.
-                    bgr = cv2.cvtColor(hwc, cv2.COLOR_RGB2BGR)
+                    # Prefer saving cached stages from the obs preprocess wrapper.
+                    if hasattr(self.training_env, "envs") and self.training_env.envs:
+                        env0 = self.training_env.envs[0]
+                        raw = getattr(env0, "last_raw_observation", None)
+                        distorted = getattr(env0, "last_distorted_observation", None)
+                        resized = getattr(env0, "last_resized_observation", None)
 
-                    path = os.path.join(self._out_dir, f"obs_{self.num_timesteps:07d}.png")
-                    cv2.imwrite(path, bgr)
-                    self._saved += 1
+                    if raw is not None:
+                        _save_rgb_u8(raw, "raw")
+                    if distorted is not None:
+                        _save_rgb_u8(distorted, "distort")
+                    if resized is not None:
+                        _save_rgb_u8(resized, "resized")
+
+                    # If we saved at least one image, bump counter.
+                    if raw is not None or distorted is not None or resized is not None:
+                        self._saved += 1
                 except Exception:
                     # Never crash training from debug dumping.
                     return True
