@@ -7,7 +7,9 @@ import gymnasium as gym
 from donkey_rl.compat import patch_gym_donkeycar_stop_join, patch_old_gym_render_mode
 from donkey_rl.obs_preprocess import ObsPreprocess
 from donkey_rl.rewards import (
+    DeepRacerStyleRewardConfig,
     DonkeyTrackLimitRewardConfig,
+    JetRacerDeepRacerRewardWrapper,
     JetRacerRaceRewardWrapper,
     JetRacerRaceRewardWrapperTrackLimit,
     RaceRewardConfig,
@@ -116,6 +118,8 @@ def build_env_fn(
                     offtrack_step_penalty=offtrack_step_penalty,
                 ),
             )
+        elif reward_type == "deepracer":
+            env = JetRacerDeepRacerRewardWrapper(env, cfg=DeepRacerStyleRewardConfig(max_cte=max_cte))
         else:
             raise ValueError(f"Unknown reward_type: {reward_type}")
 

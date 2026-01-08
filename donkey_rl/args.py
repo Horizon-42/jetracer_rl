@@ -53,8 +53,8 @@ def parse_args() -> argparse.Namespace:
         "--reward-type",
         type=str,
         default="base",
-        choices=["base", "track_limit"],
-        help="Reward function: base (original) or track_limit (adds explicit off-track penalty).",
+        choices=["base", "track_limit", "deepracer"],
+        help="Reward function: base (original), track_limit, or deepracer (ported from reward_design.md).",
     )
     parser.add_argument(
         "--max-cte",

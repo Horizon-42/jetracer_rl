@@ -143,6 +143,107 @@ class DonkeyTrackLimitRewardConfig:
     offtrack_step_penalty: float = 5.0
 
 
+@dataclass(frozen=True)
+class DeepRacerStyleRewardConfig:
+    """AWS DeepRacer-style reward ported to DonkeyCar.
+
+    DeepRacer uses:
+    - track_width
+    - distance_from_center
+    - all_wheels_on_track
+    - speed
+
+    In DonkeyCar we typically have:
+    - cte (cross-track error) ~ distance from centerline
+    - speed (simulator-provided)
+
+    We approximate:
+    - distance_from_center = abs(cte)
+    - all_wheels_on_track = abs(cte) <= max_cte
+    - track_width = 2 * max_cte (proxy; adjust if your sim uses a different scale)
+    """
+
+    # Off-track threshold in cte units.
+    max_cte: float = 8.0
+
+    # Speed encouragement term: reward += speed * speed_scale
+    speed_scale: float = 0.5
+
+    # Reward values for centerline bands.
+    r_center: float = 1.0
+    r_mid: float = 0.5
+    r_edge: float = 0.1
+    r_offtrack: float = 1e-3
+
+    # Marker fractions of track width (DeepRacer-style)
+    m1_frac: float = 0.10
+    m2_frac: float = 0.25
+    m3_frac: float = 0.50
+
+
+class JetRacerDeepRacerRewardWrapper(gym.Wrapper):
+    """DeepRacer-style reward wrapper.
+
+    Adds info under `info["deepracer_reward"]`.
+    """
+
+    def __init__(self, env: gym.Env, cfg: DeepRacerStyleRewardConfig = DeepRacerStyleRewardConfig()):
+        super().__init__(env)
+        self.cfg = cfg
+
+    def step(self, action):
+        result = self.env.step(action)
+        if len(result) == 5:
+            obs, _base_reward, terminated, truncated, info = result
+            done = bool(terminated or truncated)
+        else:
+            obs, _base_reward, done, info = result
+            terminated, truncated = bool(done), False
+
+        info_dict = dict(info) if isinstance(info, dict) else {}
+        cte = info_dict.get("cte")
+        speed = float(info_dict.get("speed", 0.0) or 0.0)
+
+        # Map to DeepRacer params.
+        max_cte = float(self.cfg.max_cte)
+        track_width = 2.0 * max_cte
+        distance_from_center = abs(float(cte)) if cte is not None else float("inf")
+        all_wheels_on_track = bool(distance_from_center <= max_cte)
+
+        # DeepRacer logic.
+        if not all_wheels_on_track:
+            reward = float(self.cfg.r_offtrack)
+        else:
+            marker_1 = self.cfg.m1_frac * track_width
+            marker_2 = self.cfg.m2_frac * track_width
+            marker_3 = self.cfg.m3_frac * track_width
+
+            reward = float(self.cfg.r_offtrack)
+            if distance_from_center <= marker_1:
+                reward = float(self.cfg.r_center)
+            elif distance_from_center <= marker_2:
+                reward = float(self.cfg.r_mid)
+            elif distance_from_center <= marker_3:
+                reward = float(self.cfg.r_edge)
+
+            reward += speed * float(self.cfg.speed_scale)
+
+        info_dict["deepracer_reward"] = {
+            "reward": float(reward),
+            "speed": float(speed),
+            "cte": None if cte is None else float(cte),
+            "distance_from_center": float(distance_from_center),
+            "all_wheels_on_track": bool(all_wheels_on_track),
+            "track_width": float(track_width),
+            "max_cte": float(max_cte),
+            "done": bool(done),
+        }
+
+        if len(result) == 5:
+            return obs, float(reward), bool(terminated), bool(truncated), info_dict
+        return obs, float(reward), bool(done), info_dict
+
+
 class JetRacerRaceRewardWrapper(gym.Wrapper):
     """Original reward wrapper (kept as-is in behavior).
 
