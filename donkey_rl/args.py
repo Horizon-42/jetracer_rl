@@ -79,36 +79,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--preprocess-distort",
         action="store_true",
-        help="Apply a simple radial lens distortion to simulator RGB images.",
-    )
-    parser.add_argument(
-        "--preprocess-distort-k1",
-        type=float,
-        default=0.0,
-        help="Radial distortion coefficient k1 (positive~barrel, negative~pincushion).",
-    )
-    parser.add_argument(
-        "--preprocess-distort-k2",
-        type=float,
-        default=0.0,
-        help="Radial distortion coefficient k2.",
+        help="Apply JetRacer lens distortion (inverse of real-image undistort calibration).",
     )
     parser.add_argument(
         "--preprocess-color-distort",
         action="store_true",
-        help="Apply a color bias (red edges) to mimic JetRacer camera artifacts.",
-    )
-    parser.add_argument(
-        "--preprocess-red-edge-strength",
-        type=float,
-        default=0.0,
-        help="Strength of red edge bias in [0..1] (typical 0.1-0.4).",
-    )
-    parser.add_argument(
-        "--preprocess-red-edge-power",
-        type=float,
-        default=2.0,
-        help="Edge bias curve power (2.0 means quadratic growth to edges).",
+        help="Apply JetRacer color distortion (inverse of real-image color correction).",
     )
 
     # Debug mode

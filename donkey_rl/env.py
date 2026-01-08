@@ -79,11 +79,7 @@ def build_env_fn(
     obs_width: int,
     obs_height: int,
     preprocess_distort: bool,
-    preprocess_distort_k1: float,
-    preprocess_distort_k2: float,
     preprocess_color_distort: bool,
-    preprocess_red_edge_strength: float,
-    preprocess_red_edge_power: float,
 ) -> Callable[[], gym.Env]:
     def _thunk() -> gym.Env:
         env = make_donkey_env(
@@ -116,11 +112,7 @@ def build_env_fn(
             width=obs_width,
             height=obs_height,
             enable_distortion=preprocess_distort,
-            distortion_k1=preprocess_distort_k1,
-            distortion_k2=preprocess_distort_k2,
             enable_color_distortion=preprocess_color_distort,
-            red_edge_strength=preprocess_red_edge_strength,
-            red_edge_power=preprocess_red_edge_power,
         )
         return env
 

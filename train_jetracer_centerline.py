@@ -72,11 +72,7 @@ def main() -> None:
                 obs_width=args.obs_width,
                 obs_height=args.obs_height,
                 preprocess_distort=bool(getattr(args, "preprocess_distort", False)),
-                preprocess_distort_k1=float(getattr(args, "preprocess_distort_k1", 0.0)),
-                preprocess_distort_k2=float(getattr(args, "preprocess_distort_k2", 0.0)),
                 preprocess_color_distort=bool(getattr(args, "preprocess_color_distort", False)),
-                preprocess_red_edge_strength=float(getattr(args, "preprocess_red_edge_strength", 0.0)),
-                preprocess_red_edge_power=float(getattr(args, "preprocess_red_edge_power", 2.0)),
             )
         ]
     )
@@ -141,11 +137,7 @@ def main() -> None:
                     obs_width=args.obs_width,
                     obs_height=args.obs_height,
                     preprocess_distort=bool(getattr(args, "preprocess_distort", False)),
-                    preprocess_distort_k1=float(getattr(args, "preprocess_distort_k1", 0.0)),
-                    preprocess_distort_k2=float(getattr(args, "preprocess_distort_k2", 0.0)),
                     preprocess_color_distort=bool(getattr(args, "preprocess_color_distort", False)),
-                    preprocess_red_edge_strength=float(getattr(args, "preprocess_red_edge_strength", 0.0)),
-                    preprocess_red_edge_power=float(getattr(args, "preprocess_red_edge_power", 2.0)),
                 )
             ]
         )
