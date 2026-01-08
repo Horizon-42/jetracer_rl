@@ -6,11 +6,13 @@ the `donkey_rl/` package for easier learning and editing.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
+import sys
 
 from donkey_rl.args import parse_args
-from donkey_rl.callbacks import BestModelOnEpisodeRewardCallback, TrainingVizCallback
+from donkey_rl.callbacks import BestModelOnEpisodeRewardCallback, DebugObsDumpCallback, TrainingVizCallback
 from donkey_rl.env import build_env_fn
 
 
@@ -27,6 +29,20 @@ def main() -> None:
     os.makedirs(args.log_dir, exist_ok=True)
     os.makedirs(os.path.dirname(args.save_path) or ".", exist_ok=True)
     os.makedirs(os.path.dirname(args.best_model_path) or ".", exist_ok=True)
+    if getattr(args, "debug", False):
+        os.makedirs(getattr(args, "debug_obs_dir", os.path.join(os.path.dirname(args.save_path), "debug_obs")), exist_ok=True)
+
+    # Save the exact run configuration for reproducibility.
+    # This prevents confusion when you run multiple trainings in parallel.
+    try:
+        run_dir = getattr(args, "run_dir", os.path.dirname(args.save_path) or ".")
+        os.makedirs(run_dir, exist_ok=True)
+        args_path = os.path.join(run_dir, "args.json")
+        with open(args_path, "w", encoding="utf-8") as f:
+            json.dump({"argv": sys.argv, "args": vars(args)}, f, ensure_ascii=False, indent=2)
+    except Exception:
+        # Never block training due to logging issues.
+        pass
 
     try:
         from stable_baselines3 import PPO
@@ -88,6 +104,18 @@ def main() -> None:
 
     callbacks = [TrainingVizCallback(render=args.render).sb3_callback()]
 
+    total_timesteps = int(args.total_timesteps)
+    if getattr(args, "debug", False):
+        total_timesteps = int(args.debug_steps)
+        callbacks.insert(
+            0,
+            DebugObsDumpCallback(
+                out_dir=args.debug_obs_dir,
+                stop_after_steps=total_timesteps,
+                save_every=int(args.debug_obs_every),
+            ).sb3_callback(),
+        )
+
     best_zip_in_log = os.path.join(args.log_dir, "best", "best_model.zip")
     eval_callback = None
     eval_env = None
@@ -126,7 +154,7 @@ def main() -> None:
     cb = CallbackList(callbacks)
 
     try:
-        model.learn(total_timesteps=args.total_timesteps, callback=cb)
+        model.learn(total_timesteps=total_timesteps, callback=cb)
     except KeyboardInterrupt:
         print("Interrupted. Saving last model...")
         model.save(args.save_path)

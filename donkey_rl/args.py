@@ -4,13 +4,26 @@ import argparse
 import os
 
 
-def default_log_dir(base: str = "tensorboard_logs/JetRacer") -> str:
-    log_dir = base
+def _sanitize_name(name: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "_" for ch in name).strip("_")
+
+
+def _next_jetracer_id(*, models_root: str, log_root: str, prefix: str = "JetRacer") -> str:
+    """Return a run id like `JetRacer_1`, `JetRacer_2`, ...
+
+    We pick the smallest i such that BOTH folders don't already exist:
+      models/<id>/ and tensorboard_logs/<id>/
+
+    Note: If you start multiple runs at exactly the same time, there is still a small
+    chance of a race condition. In practice this is usually fine.
+    """
+
     i = 1
-    while os.path.exists(log_dir):
-        log_dir = f"{base}_{i}"
+    while True:
+        run_id = f"{prefix}_{i}"
+        if not os.path.exists(os.path.join(models_root, run_id)) and not os.path.exists(os.path.join(log_root, run_id)):
+            return run_id
         i += 1
-    return log_dir
 
 
 def parse_args() -> argparse.Namespace:
@@ -62,10 +75,50 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--obs-height", type=int, default=84)
     parser.add_argument("--total-timesteps", type=int, default=200_000)
 
+    # Debug mode
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Debug mode: run a short training and dump observation images.",
+    )
+    parser.add_argument(
+        "--debug-steps",
+        type=int,
+        default=500,
+        help="Number of timesteps to run when --debug is enabled.",
+    )
+    parser.add_argument(
+        "--debug-obs-every",
+        type=int,
+        default=10,
+        help="Save one observation image every N steps in debug mode.",
+    )
+
     # Saving/logging
-    parser.add_argument("--log-dir", type=str, default=default_log_dir())
-    parser.add_argument("--save-path", type=str, default="models/centerline_ppo.zip")
-    parser.add_argument("--best-model-path", type=str, default="models/best_model.zip")
+    parser.add_argument(
+        "--run-name",
+        type=str,
+        default=None,
+        help="Optional name tag for this run (used in output folder name).",
+    )
+    parser.add_argument(
+        "--models-root",
+        type=str,
+        default="models",
+        help="Root directory for saving models. A unique subfolder is created per run.",
+    )
+    parser.add_argument(
+        "--log-root",
+        type=str,
+        default="tensorboard_logs",
+        help="Root directory for TensorBoard logs. A unique subfolder is created per run.",
+    )
+
+    # If you provide these explicitly, we will respect them. Otherwise we create
+    # per-run defaults under models-root/log-root to avoid collisions.
+    parser.add_argument("--log-dir", type=str, default=None)
+    parser.add_argument("--save-path", type=str, default=None)
+    parser.add_argument("--best-model-path", type=str, default=None)
 
     # Rendering
     parser.add_argument("--render", action="store_true", help="Call env.render() each step (usually no-op)")
@@ -90,4 +143,25 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.eval_port == 0:
         args.eval_port = int(args.port) + 1
+
+    # Per-run output directories (prevents interfering when launching multiple trainings)
+    if args.run_name:
+        run_id = _sanitize_name(str(args.run_name))
+        if not run_id:
+            run_id = _next_jetracer_id(models_root=args.models_root, log_root=args.log_root)
+    else:
+        run_id = _next_jetracer_id(models_root=args.models_root, log_root=args.log_root)
+
+    args.run_id = run_id
+    args.run_dir = os.path.join(args.models_root, run_id)
+
+    if args.log_dir is None:
+        args.log_dir = os.path.join(args.log_root, run_id)
+    if args.save_path is None:
+        args.save_path = os.path.join(args.run_dir, "last_model.zip")
+    if args.best_model_path is None:
+        args.best_model_path = os.path.join(args.run_dir, "best_model.zip")
+
+    # Debug artifacts directory
+    args.debug_obs_dir = os.path.join(args.run_dir, "debug_obs")
     return args
