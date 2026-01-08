@@ -28,7 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--exe-path",
         type=str,
-        default="remote",
+        default="/home/supercomputing/studys/DonkeySim/DonkeySimLinux/donkey_sim.x86_64",
         help="Path to the simulator binary, or 'remote' if you start the sim manually.",
     )
 
