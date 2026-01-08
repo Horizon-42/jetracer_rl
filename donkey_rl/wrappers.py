@@ -4,6 +4,8 @@ from typing import Optional
 
 import gymnasium as gym
 import numpy as np
+import cv2
+
 
 
 class JetRacerWrapper(gym.ActionWrapper):
@@ -59,7 +61,6 @@ class ResizeNormalizeObs(gym.ObservationWrapper):
         )
 
     def observation(self, observation: np.ndarray) -> np.ndarray:
-        import cv2
 
         resized = cv2.resize(observation, (self._width, self._height), interpolation=cv2.INTER_AREA)
         chw = resized.transpose(2, 0, 1).astype(np.float32) / 255.0
