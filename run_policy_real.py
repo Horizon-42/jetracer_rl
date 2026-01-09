@@ -324,6 +324,9 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--obs-width", type=int, default=84)
     p.add_argument("--obs-height", type=int, default=84)
 
+    # Conversion utility
+    p.add_argument("--convert-model", type=str, default="", help="If set, load the model (applying fixes) and save to this path, exit.")
+
     return p.parse_args()
 
 
@@ -335,7 +338,17 @@ def main() -> None:
 
     from donkey_rl.real_obs_preprocess import preprocess_real_frame_bgr_to_chw_float01
 
+    print(f"Loading model: {args.model}")
     model = _load_sb3_model(str(args.model), obs_width=int(args.obs_width), obs_height=int(args.obs_height))
+
+    if args.convert_model:
+        out_path = str(args.convert_model)
+        print(f"Converting model and saving to: {out_path}")
+        # Saving the model will persist the in-memory structure (Shared architecture)
+        # and standard SB3 1.2.0 metadata, making it natively compatible.
+        model.save(out_path)
+        print("Conversion complete. You can now use this new model file without compatibility hacks.")
+        return
 
     actuator: Optional[_JetRacerActuator] = None
     if str(args.mode) == "real":
