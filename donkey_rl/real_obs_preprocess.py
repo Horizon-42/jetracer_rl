@@ -1,4 +1,4 @@
-from __future__ import annotations
+# Python 3.6 compatible (no __future__ annotations)
 
 from typing import Dict, Tuple
 
