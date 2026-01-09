@@ -1,18 +1,17 @@
-from __future__ import annotations
-
 import argparse
 import os
 import time
-from dataclasses import dataclass
-from typing import Iterator, Optional, Sequence, Tuple
+from typing import Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 
-@dataclass(frozen=True)
-class Action:
-    throttle: float
-    steering: float
+class Action(object):
+    __slots__ = ("throttle", "steering")
+
+    def __init__(self, throttle: float, steering: float):
+        self.throttle = float(throttle)
+        self.steering = float(steering)
 
 
 def _clip_action(a: Action) -> Action:
@@ -66,12 +65,7 @@ def _load_sb3_model(path: str, *, obs_width: int, obs_height: int):
         observation_space = obs_space
         action_space = act_space
 
-        def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):  # type: ignore[override]
-            if hasattr(super(), "reset"):
-                try:
-                    super().reset(seed=seed)
-                except Exception:
-                    pass
+        def reset(self, *args, **kwargs):  # type: ignore[override]
             obs = np.zeros((3, int(obs_height), int(obs_width)), dtype=np.float32)
             info = {}
             return obs, info
@@ -156,7 +150,7 @@ def _predict_action(model, obs_chw_float01: np.ndarray, *, deterministic: bool) 
 
 def _iter_image_files(images_dir: str) -> Sequence[str]:
     exts = {".jpg", ".jpeg", ".png", ".bmp"}
-    files: list[str] = []
+    files = []  # type: List[str]
     for name in sorted(os.listdir(images_dir)):
         p = os.path.join(images_dir, name)
         if not os.path.isfile(p):
