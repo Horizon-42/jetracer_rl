@@ -86,15 +86,64 @@ def _load_sb3_model(path: str, *, obs_width: int, obs_height: int):
 
     dummy_env = _DummyEnv()
 
-    return PPO.load(
-        path,
-        device="auto",
-        env=dummy_env,
-        custom_objects={
+    def _do_load(*, extra_custom_objects: Optional[dict] = None):
+        custom_objects = {
             "observation_space": obs_space,
             "action_space": act_space,
-        },
-    )
+        }
+        if extra_custom_objects:
+            custom_objects.update(extra_custom_objects)
+        return PPO.load(path, device="auto", env=dummy_env, custom_objects=custom_objects)
+
+    try:
+        return _do_load()
+    except RuntimeError as e:
+        msg = str(e)
+        if "Could not infer dtype of numpy.float32" not in msg:
+            raise
+
+        # Fallback: SB3's default NatureCNN uses observation_space.sample() to infer
+        # CNN flatten size. On some Jetson installs, Box.sample() is broken due to
+        # gym/gymnasium/numpy/torch interactions.
+        #
+        # We replace the extractor with a drop-in equivalent that infers shapes using
+        # torch.zeros() instead of sample(), keeping parameter names compatible.
+        try:
+            import torch as th
+            import torch.nn as nn
+            from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+
+            class SafeNatureCNN(BaseFeaturesExtractor):
+                def __init__(self, observation_space, features_dim: int = 512):
+                    super().__init__(observation_space, features_dim)
+                    n_input_channels = int(observation_space.shape[0])
+                    self.cnn = nn.Sequential(
+                        nn.Conv2d(n_input_channels, 32, kernel_size=8, stride=4, padding=0),
+                        nn.ReLU(),
+                        nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0),
+                        nn.ReLU(),
+                        nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0),
+                        nn.ReLU(),
+                        nn.Flatten(),
+                    )
+                    with th.no_grad():
+                        sample = th.zeros((1,) + tuple(observation_space.shape), dtype=th.float32)
+                        n_flatten = int(self.cnn(sample).shape[1])
+                    self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
+
+                def forward(self, observations: th.Tensor) -> th.Tensor:
+                    return self.linear(self.cnn(observations))
+
+            # Preserve the most common policy kwargs in this repo.
+            safe_policy_kwargs = {
+                "normalize_images": False,
+                "features_extractor_class": SafeNatureCNN,
+            }
+
+            print("NOTE: Falling back to SafeNatureCNN to avoid gym Box.sample() dtype crash during model load.")
+            return _do_load(extra_custom_objects={"policy_kwargs": safe_policy_kwargs})
+        except Exception:
+            raise
 
 
 def _predict_action(model, obs_chw_float01: np.ndarray, *, deterministic: bool) -> Action:
