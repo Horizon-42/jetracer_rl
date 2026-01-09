@@ -9,16 +9,19 @@ from donkey_rl.obs_preprocess import ObsPreprocess
 from donkey_rl.rewards import (
     CenterlineV3RewardConfig,
     CenterlineV2RewardConfig,
+    CenterlineV4RewardConfig,
     DeepRacerStyleRewardConfig,
     DonkeyTrackLimitRewardConfig,
     JetRacerCenterlineV3RewardWrapper,
     JetRacerCenterlineV2RewardWrapper,
+    JetRacerCenterlineV4RewardWrapper,
     JetRacerDeepRacerRewardWrapper,
     JetRacerRaceRewardWrapper,
     JetRacerRaceRewardWrapperTrackLimit,
     RaceRewardConfig,
 )
 from donkey_rl.wrappers import JetRacerWrapper, RandomFrictionWrapper
+from donkey_rl.wrappers import StepTimeoutWrapper
 
 
 def make_donkey_env(
@@ -29,6 +32,7 @@ def make_donkey_env(
     exe_path: str,
     fast_mode: bool,
     max_cte: float,
+    io_timeout_s: float = 30.0,
 ) -> gym.Env:
     """Create a DonkeyCar env through Gymnasium+Shimmy."""
 
@@ -68,11 +72,18 @@ def make_donkey_env(
             "img_enc": "JPG",
         }
 
-    return gym.make(
+    env = gym.make(
         "GymV21Environment-v0",
         env_id=env_id,
         make_kwargs={"conf": conf},
     )
+
+    # Protect training against silent hangs when the sim disconnects.
+    # If step/reset blocks longer than io_timeout_s, we raise TimeoutError.
+    if float(io_timeout_s) > 0:
+        env = StepTimeoutWrapper(env, timeout_s=float(io_timeout_s))
+
+    return env
 
 
 def build_env_fn(
@@ -92,6 +103,12 @@ def build_env_fn(
     v3_min_speed: float,
     v3_w_stall: float,
     v3_alive_bonus: float,
+    v4_w_speed: float,
+    v4_min_speed: float,
+    v4_w_stall: float,
+    v4_w_smooth: float,
+    v4_alive_bonus: float,
+    sim_io_timeout_s: float,
     obs_width: int,
     obs_height: int,
     domain_rand: bool,
@@ -111,6 +128,7 @@ def build_env_fn(
             exe_path=exe_path,
             fast_mode=fast_mode,
             max_cte=max_cte,
+            io_timeout_s=float(sim_io_timeout_s),
         )
 
         # Apply friction randomization in Donkey action space: [steer, throttle]
@@ -151,6 +169,18 @@ def build_env_fn(
                     min_speed=float(v3_min_speed),
                     w_stall=float(v3_w_stall),
                     alive_bonus=float(v3_alive_bonus),
+                ),
+            )
+        elif reward_type == "centerline_v4":
+            env = JetRacerCenterlineV4RewardWrapper(
+                env,
+                cfg=CenterlineV4RewardConfig(
+                    max_cte=max_cte,
+                    w_speed=float(v4_w_speed),
+                    min_speed=float(v4_min_speed),
+                    w_stall=float(v4_w_stall),
+                    w_smooth=float(v4_w_smooth),
+                    alive_bonus=float(v4_alive_bonus),
                 ),
             )
         else:

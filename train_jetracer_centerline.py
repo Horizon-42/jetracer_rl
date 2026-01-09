@@ -23,8 +23,95 @@ def _sync_best_model(best_zip_path: str, target_best_path: str) -> None:
     shutil.copy2(best_zip_path, target_best_path)
 
 
+def _argv_has_flag(flag: str) -> bool:
+    return flag in sys.argv
+
+
+def _find_nearby_args_json(load_model_path: str) -> str:
+    """Best-effort search for args.json near a model zip.
+
+    Supports common layouts:
+    - models/<run>/best_model.zip with models/<run>/args.json
+    - tensorboard_logs/<run>/best/best_model.zip with tensorboard_logs/<run>/args.json
+    """
+
+    candidates = []
+    d = os.path.dirname(os.path.abspath(load_model_path))
+    for _ in range(4):
+        candidates.append(os.path.join(d, "args.json"))
+        d = os.path.dirname(d)
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return ""
+
+
+def _maybe_inherit_reward_args_from_loaded_model(args) -> None:
+    """If --load-model is set, inherit reward settings from the source run.
+
+    Behavior:
+    - If the user explicitly provided a flag (e.g. --reward-type), we do NOT override it.
+    - Otherwise, we read the saved run's args.json and copy reward-related fields.
+    """
+
+    load_model_path = str(getattr(args, "load_model", "") or "").strip()
+    if not load_model_path:
+        return
+
+    args_json = _find_nearby_args_json(load_model_path)
+    if not args_json:
+        return
+
+    try:
+        with open(args_json, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        saved = payload.get("args", payload)
+        if not isinstance(saved, dict):
+            return
+    except Exception:
+        return
+
+    # Reward selection
+    if not _argv_has_flag("--reward-type") and "reward_type" in saved:
+        try:
+            args.reward_type = str(saved["reward_type"])
+        except Exception:
+            pass
+
+    # Common reward-related knobs
+    mapping = {
+        "--max-cte": "max_cte",
+        "--offtrack-step-penalty": "offtrack_step_penalty",
+        "--v2-w-speed": "v2_w_speed",
+        "--v2-w-caution": "v2_w_caution",
+        "--v2-min-speed": "v2_min_speed",
+        "--v3-w-speed": "v3_w_speed",
+        "--v3-min-speed": "v3_min_speed",
+        "--v3-w-stall": "v3_w_stall",
+        "--v3-alive-bonus": "v3_alive_bonus",
+        "--v4-w-speed": "v4_w_speed",
+        "--v4-min-speed": "v4_min_speed",
+        "--v4-w-stall": "v4_w_stall",
+        "--v4-w-smooth": "v4_w_smooth",
+        "--v4-alive-bonus": "v4_alive_bonus",
+    }
+    for flag, key in mapping.items():
+        if _argv_has_flag(flag):
+            continue
+        if key not in saved:
+            continue
+        try:
+            setattr(args, key, saved[key])
+        except Exception:
+            pass
+
+
 def main() -> None:
     args = parse_args()
+
+    # When continuing training from a checkpoint, inherit reward settings by default
+    # to avoid accidental mismatches between the loaded policy and the new env.
+    _maybe_inherit_reward_args_from_loaded_model(args)
 
     os.makedirs(args.log_dir, exist_ok=True)
     os.makedirs(os.path.dirname(args.save_path) or ".", exist_ok=True)
@@ -76,6 +163,12 @@ def main() -> None:
                 v3_min_speed=float(getattr(args, "v3_min_speed", 0.35)),
                 v3_w_stall=float(getattr(args, "v3_w_stall", 2.0)),
                 v3_alive_bonus=float(getattr(args, "v3_alive_bonus", 0.02)),
+                v4_w_speed=float(getattr(args, "v4_w_speed", 1.0)),
+                v4_min_speed=float(getattr(args, "v4_min_speed", 0.25)),
+                v4_w_stall=float(getattr(args, "v4_w_stall", 3.0)),
+                v4_w_smooth=float(getattr(args, "v4_w_smooth", 0.25)),
+                v4_alive_bonus=float(getattr(args, "v4_alive_bonus", 0.03)),
+                sim_io_timeout_s=float(getattr(args, "sim_io_timeout_s", 30.0)),
                 obs_width=args.obs_width,
                 obs_height=args.obs_height,
                 domain_rand=bool(getattr(args, "domain_rand", False)),
@@ -174,6 +267,12 @@ def main() -> None:
                     v3_min_speed=float(getattr(args, "v3_min_speed", 0.35)),
                     v3_w_stall=float(getattr(args, "v3_w_stall", 2.0)),
                     v3_alive_bonus=float(getattr(args, "v3_alive_bonus", 0.02)),
+                    v4_w_speed=float(getattr(args, "v4_w_speed", 1.0)),
+                    v4_min_speed=float(getattr(args, "v4_min_speed", 0.25)),
+                    v4_w_stall=float(getattr(args, "v4_w_stall", 3.0)),
+                    v4_w_smooth=float(getattr(args, "v4_w_smooth", 0.25)),
+                    v4_alive_bonus=float(getattr(args, "v4_alive_bonus", 0.03)),
+                    sim_io_timeout_s=float(getattr(args, "sim_io_timeout_s", 30.0)),
                     obs_width=args.obs_width,
                     obs_height=args.obs_height,
                     # Keep evaluation deterministic by default.
@@ -226,6 +325,32 @@ def main() -> None:
 
         _sync_best_model(best_zip_in_log, args.best_model_path)
         raise
+    except (TimeoutError, ConnectionError, BrokenPipeError, OSError) as e:
+        # When Unity disconnects or IO hangs/aborts, fail fast and save progress.
+        print(f"Environment connection error: {type(e).__name__}: {e}")
+        print("Saving last model and exiting...")
+        try:
+            model.save(args.save_path)
+        except Exception:
+            pass
+
+        if args.eval and eval_callback is not None and eval_env is not None:
+            try:
+                mean_reward, _std = evaluate_policy(
+                    model,
+                    eval_env,
+                    n_eval_episodes=int(max(1, args.n_eval_episodes)),
+                    deterministic=True,
+                )
+                if float(mean_reward) > float(eval_callback.best_mean_reward):
+                    os.makedirs(os.path.dirname(best_zip_in_log), exist_ok=True)
+                    model.save(best_zip_in_log)
+            except Exception:
+                pass
+
+        if os.path.exists(best_zip_in_log):
+            _sync_best_model(best_zip_in_log, args.best_model_path)
+        raise SystemExit(2)
     finally:
         if os.path.exists(best_zip_in_log):
             _sync_best_model(best_zip_in_log, args.best_model_path)

@@ -6,6 +6,69 @@ import gymnasium as gym
 import numpy as np
 
 
+class StepTimeoutWrapper(gym.Wrapper):
+    """Abort hanging env.step()/reset() calls with a wall-clock timeout.
+
+    Why this exists
+    ---------------
+    When DonkeySim (Unity) disconnects or gets stuck, the underlying client can
+    block inside a socket recv. SB3 then appears to "freeze" because it never
+    returns from env.step().
+
+    This wrapper uses Unix signals to raise a TimeoutError if step/reset takes
+    longer than `timeout_s`.
+
+    Notes
+    -----
+    - Works on Linux/macOS in the main thread.
+    - If signals are unavailable (e.g. Windows) or not in main thread, it falls
+      back to no-op (no timeout enforcement).
+    """
+
+    def __init__(self, env: gym.Env, *, timeout_s: float = 30.0):
+        super().__init__(env)
+        self._timeout_s = float(timeout_s)
+
+    def _supports_signals(self) -> bool:
+        try:
+            import signal
+            import threading
+
+            return threading.current_thread() is threading.main_thread() and hasattr(signal, "setitimer")
+        except Exception:
+            return False
+
+    def _run_with_timeout(self, fn, *args, **kwargs):
+        if self._timeout_s <= 0 or not self._supports_signals():
+            return fn(*args, **kwargs)
+
+        import signal
+
+        def _handler(_signum, _frame):  # type: ignore[no-untyped-def]
+            raise TimeoutError(f"DonkeySim IO timeout after {self._timeout_s:.1f}s")
+
+        prev_handler = signal.getsignal(signal.SIGALRM)
+        try:
+            signal.signal(signal.SIGALRM, _handler)
+            signal.setitimer(signal.ITIMER_REAL, self._timeout_s)
+            return fn(*args, **kwargs)
+        finally:
+            try:
+                signal.setitimer(signal.ITIMER_REAL, 0.0)
+            except Exception:
+                pass
+            try:
+                signal.signal(signal.SIGALRM, prev_handler)
+            except Exception:
+                pass
+
+    def reset(self, **kwargs):  # type: ignore[override]
+        return self._run_with_timeout(self.env.reset, **kwargs)
+
+    def step(self, action):  # type: ignore[override]
+        return self._run_with_timeout(self.env.step, action)
+
+
 class JetRacerWrapper(gym.ActionWrapper):
     """JetRacer-style action interface: [throttle, steering] -> DonkeyCar [steer, throttle]."""
 

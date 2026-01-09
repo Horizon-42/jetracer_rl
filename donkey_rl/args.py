@@ -45,6 +45,13 @@ def parse_args() -> argparse.Namespace:
         help="Path to the simulator binary, or 'remote' if you start the sim manually.",
     )
 
+    parser.add_argument(
+        "--sim-io-timeout-s",
+        type=float,
+        default=30.0,
+        help="Abort hanging sim step/reset after N seconds (0 disables). Helps when Unity disconnects.",
+    )
+
     # Speed knobs
     parser.add_argument("--fast", action="store_true", help="Enable faster config (lower res + JPG + frame_skip).")
 
@@ -53,8 +60,8 @@ def parse_args() -> argparse.Namespace:
         "--reward-type",
         type=str,
         default="base",
-        choices=["base", "track_limit", "deepracer", "centerline_v2", "centerline_v3"],
-        help="Reward function: base, track_limit, deepracer, centerline_v2, or centerline_v3 (simpler anti-stall).",
+        choices=["base", "track_limit", "deepracer", "centerline_v2", "centerline_v3", "centerline_v4"],
+        help="Reward function: base, track_limit, deepracer, centerline_v2, centerline_v3, or centerline_v4 (center+speed+smooth+alive+anti-stall).",
     )
     parser.add_argument(
         "--max-cte",
@@ -79,6 +86,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--v3-min-speed", type=float, default=0.35, help="centerline_v3: minimum desired speed")
     parser.add_argument("--v3-w-stall", type=float, default=2.0, help="centerline_v3: penalty weight for speed below v3-min-speed")
     parser.add_argument("--v3-alive-bonus", type=float, default=0.02, help="centerline_v3: small per-step bonus")
+
+    # Reward tuning knobs for centerline_v4 (simple + smooth + anti-stall)
+    parser.add_argument("--v4-w-speed", type=float, default=1.0, help="centerline_v4: speed reward weight")
+    parser.add_argument("--v4-w-smooth", type=float, default=0.25, help="centerline_v4: smoothness penalty weight")
+    parser.add_argument("--v4-min-speed", type=float, default=0.25, help="centerline_v4: minimum desired speed")
+    parser.add_argument("--v4-w-stall", type=float, default=3.0, help="centerline_v4: penalty weight for speed below v4-min-speed")
+    parser.add_argument("--v4-alive-bonus", type=float, default=0.03, help="centerline_v4: small per-step bonus")
 
     # Training
     parser.add_argument("--seed", type=int, default=0)

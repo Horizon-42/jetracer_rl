@@ -335,6 +335,137 @@ class JetRacerCenterlineV3RewardWrapper(gym.Wrapper):
         return obs, float(reward), bool(done), info_dict
 
 
+@dataclass(frozen=True)
+class CenterlineV4RewardConfig:
+    """Centerline reward with speed, smoothness, alive bonus, and anti-stall.
+
+    Design requirements
+    -------------------
+    1) follow centerline
+    2) smooth turn
+    3) faster better
+    4) stay longer better
+    5) can't just stop in the track
+
+    Minimal knobs:
+    - w_speed, min_speed, w_stall, w_smooth, alive_bonus
+    """
+
+    max_cte: float = 8.0
+
+    w_center: float = 1.0
+    w_speed: float = 1.0
+
+    # Smooth turn (penalize steering magnitude + steering change)
+    w_smooth: float = 0.25
+
+    # Anti-stall
+    min_speed: float = 0.25
+    w_stall: float = 3.0
+
+    # Stay longer better
+    alive_bonus: float = 0.03
+
+    # Safety penalties
+    offtrack_penalty: float = 50.0
+    collision_penalty: float = 50.0
+
+
+class JetRacerCenterlineV4RewardWrapper(gym.Wrapper):
+    """Reward wrapper implementing CenterlineV4RewardConfig.
+
+    Adds info under `info["centerline_v4_reward"]`.
+    """
+
+    def __init__(self, env: gym.Env, cfg: CenterlineV4RewardConfig = CenterlineV4RewardConfig()):
+        super().__init__(env)
+        self.cfg = cfg
+        self._prev_steering: float = 0.0
+
+    def step(self, action):
+        result = self.env.step(action)
+        if len(result) == 5:
+            obs, _base_reward, terminated, truncated, info = result
+            done = bool(terminated or truncated)
+        else:
+            obs, _base_reward, done, info = result
+            terminated, truncated = bool(done), False
+
+        info_dict = dict(info) if isinstance(info, dict) else {}
+        cte = info_dict.get("cte")
+        speed = float(info_dict.get("speed", 0.0) or 0.0)
+        hit = info_dict.get("hit")
+        throttle, steering = _try_get_last_raw_action(self.env)
+
+        if cte is None:
+            reward = -1.0
+            info_dict["centerline_v4_reward"] = {
+                "reward": float(reward),
+                "cte": None,
+                "speed": float(speed),
+                "throttle": float(throttle),
+                "steering": float(steering),
+                "note": "missing_cte",
+                "done": bool(done),
+            }
+            if len(result) == 5:
+                return obs, float(reward), bool(terminated), bool(truncated), info_dict
+            return obs, float(reward), bool(done), info_dict
+
+        max_cte = float(self.cfg.max_cte)
+        abs_cte = abs(float(cte))
+        offtrack = bool(abs_cte > max_cte)
+        collision = bool(isinstance(hit, str) and hit != "none")
+
+        steer_rate = 0.0
+        smooth_pen = 0.0
+
+        if offtrack:
+            reward = -float(self.cfg.offtrack_penalty)
+        else:
+            # Centerline score in [0,1]
+            center_score = float(np.clip(1.0 - (abs_cte / max_cte), 0.0, 1.0))
+
+            # Smoothness: penalize steering magnitude and steering change.
+            steer_rate = float(steering) - float(self._prev_steering)
+            smooth_pen = float((steering**2) + (steer_rate**2))
+            self._prev_steering = float(steering)
+
+            reward = 0.0
+            reward += float(self.cfg.alive_bonus)
+            reward += float(self.cfg.w_center) * center_score
+            reward += float(self.cfg.w_speed) * float(speed)
+            reward -= float(self.cfg.w_smooth) * smooth_pen
+
+            # Anti-stall: penalize being below min_speed.
+            if float(speed) < float(self.cfg.min_speed):
+                reward -= float(self.cfg.w_stall) * float(float(self.cfg.min_speed) - float(speed))
+
+        if collision:
+            reward -= float(self.cfg.collision_penalty)
+
+        info_dict["centerline_v4_reward"] = {
+            "reward": float(reward),
+            "cte": float(cte),
+            "abs_cte": float(abs_cte),
+            "max_cte": float(max_cte),
+            "offtrack": bool(offtrack),
+            "speed": float(speed),
+            "min_speed": float(self.cfg.min_speed),
+            "throttle": float(throttle),
+            "steering": float(steering),
+            "steer_rate": float(steer_rate),
+            "smooth_pen": float(smooth_pen),
+            "hit": hit,
+            "collision": bool(collision),
+            "done": bool(done),
+        }
+
+        if len(result) == 5:
+            return obs, float(reward), bool(terminated), bool(truncated), info_dict
+        return obs, float(reward), bool(done), info_dict
+
+
 class JetRacerCenterlineV2RewardWrapper(gym.Wrapper):
     """Reward wrapper implementing CenterlineV2RewardConfig.
 

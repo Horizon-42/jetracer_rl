@@ -94,6 +94,7 @@ def _make_sim_env(*, env_id: str, host: str, port: int, exe_path: str, obs_width
     from donkey_rl.obs_preprocess import ObsPreprocess
     from donkey_rl.rewards import JetRacerRaceRewardWrapper, RaceRewardConfig
     from donkey_rl.wrappers import JetRacerWrapper
+    from donkey_rl.wrappers import StepTimeoutWrapper
 
     conf = {
         "exe_path": exe_path,
@@ -109,6 +110,7 @@ def _make_sim_env(*, env_id: str, host: str, port: int, exe_path: str, obs_width
     }
 
     env = gym.make("GymV21Environment-v0", env_id=env_id, make_kwargs={"conf": conf})
+    env = StepTimeoutWrapper(env, timeout_s=30.0)
     env = JetRacerWrapper(env)
     # Reward wrapper doesn't matter for inference, but keeps info consistent.
     env = JetRacerRaceRewardWrapper(env, cfg=RaceRewardConfig())
