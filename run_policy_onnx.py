@@ -80,7 +80,7 @@ def main():
             from jetcam.csi_camera import CSICamera
             # CSI 摄像头通常 capture_width 设为 1280x720 比较稳定，
             # width/height 是 jetcam 帮你 resize 后的输出大小
-            camera = CSICamera(width=args.cam_width, height=args.cam_height, capture_width=1280, capture_height=720, capture_fps=30)
+            camera = CSICamera(width=args.cam_width, height=args.cam_height, capture_width=320, capture_height=240, capture_fps=20)
         else:
             print("CSI Camera not found, trying USB camera...")
             from jetcam.usb_camera import USBCamera
