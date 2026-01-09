@@ -40,13 +40,20 @@ def _load_sb3_model(path: str, *, obs_width: int, obs_height: int):
     except Exception:  # pragma: no cover
         import gym as _gym  # type: ignore
 
-    obs_space = _gym.spaces.Box(
+    # Some Jetson images end up with `gym` + NumPy combinations where `Box.sample()`
+    # returns an unexpected object (leading to torch: "Could not infer dtype of numpy.float32").
+    # We only need sampling here for SB3 to infer CNN shapes, so make sampling deterministic.
+    class _SafeBox(_gym.spaces.Box):  # type: ignore[misc]
+        def sample(self):  # type: ignore[override]
+            return np.zeros(self.shape, dtype=np.float32)
+
+    obs_space = _SafeBox(
         low=0.0,
         high=1.0,
         shape=(3, int(obs_height), int(obs_width)),
         dtype=np.float32,
     )
-    act_space = _gym.spaces.Box(
+    act_space = _SafeBox(
         low=np.array([-0.5, -1.0], dtype=np.float32),
         high=np.array([1.0, 1.0], dtype=np.float32),
         dtype=np.float32,
