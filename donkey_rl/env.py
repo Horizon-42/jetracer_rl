@@ -7,8 +7,10 @@ import gymnasium as gym
 from donkey_rl.compat import patch_gym_donkeycar_stop_join, patch_old_gym_render_mode
 from donkey_rl.obs_preprocess import ObsPreprocess
 from donkey_rl.rewards import (
+    CenterlineV2RewardConfig,
     DeepRacerStyleRewardConfig,
     DonkeyTrackLimitRewardConfig,
+    JetRacerCenterlineV2RewardWrapper,
     JetRacerDeepRacerRewardWrapper,
     JetRacerRaceRewardWrapper,
     JetRacerRaceRewardWrapperTrackLimit,
@@ -81,6 +83,9 @@ def build_env_fn(
     reward_type: str,
     max_cte: float,
     offtrack_step_penalty: float,
+    v2_w_speed: float,
+    v2_w_caution: float,
+    v2_min_speed: float,
     obs_width: int,
     obs_height: int,
     domain_rand: bool,
@@ -120,6 +125,16 @@ def build_env_fn(
             )
         elif reward_type == "deepracer":
             env = JetRacerDeepRacerRewardWrapper(env, cfg=DeepRacerStyleRewardConfig(max_cte=max_cte))
+        elif reward_type == "centerline_v2":
+            env = JetRacerCenterlineV2RewardWrapper(
+                env,
+                cfg=CenterlineV2RewardConfig(
+                    max_cte=max_cte,
+                    w_speed=float(v2_w_speed),
+                    w_caution=float(v2_w_caution),
+                    min_speed=float(v2_min_speed),
+                ),
+            )
         else:
             raise ValueError(f"Unknown reward_type: {reward_type}")
 

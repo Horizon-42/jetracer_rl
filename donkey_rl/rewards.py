@@ -181,6 +181,139 @@ class DeepRacerStyleRewardConfig:
     m3_frac: float = 0.50
 
 
+@dataclass(frozen=True)
+class CenterlineV2RewardConfig:
+    """Simple, tunable reward for centerline + speed + smooth + caution.
+
+    Design goals
+    ------------
+    1) Follow the centerline: reward decreases as |cte| increases.
+    2) Won't stop: reward includes speed and penalizes too-low speed.
+    3) Smooth yet cautious: penalize steering magnitude & steering changes,
+       and penalize high-speed while turning / off-center.
+    4) Faster is better: positive speed term.
+
+    Required signals (from DonkeySim `info`)
+    --------------------------------------
+    - cte: cross-track error (distance from center)
+    - speed: forward speed
+
+    Steering is taken from our action wrapper via `_try_get_last_raw_action`.
+    """
+
+    max_cte: float = 8.0
+
+    # Core terms
+    w_center: float = 1.0
+    w_speed: float = 0.8
+
+    # Anti-stall
+    min_speed: float = 0.2
+    w_stall: float = 1.0
+
+    # Smoothness (single knob)
+    w_smooth: float = 0.15
+
+    # Caution: penalize high speed when steering or off-center
+    w_caution: float = 0.6
+
+    # Safety penalties
+    offtrack_penalty: float = 50.0
+    collision_penalty: float = 50.0
+
+
+class JetRacerCenterlineV2RewardWrapper(gym.Wrapper):
+    """Reward wrapper implementing CenterlineV2RewardConfig.
+
+    Adds info under `info["centerline_v2_reward"]`.
+    """
+
+    def __init__(self, env: gym.Env, cfg: CenterlineV2RewardConfig = CenterlineV2RewardConfig()):
+        super().__init__(env)
+        self.cfg = cfg
+        self._prev_steering: float = 0.0
+
+    def step(self, action):
+        result = self.env.step(action)
+        if len(result) == 5:
+            obs, _base_reward, terminated, truncated, info = result
+            done = bool(terminated or truncated)
+        else:
+            obs, _base_reward, done, info = result
+            terminated, truncated = bool(done), False
+
+        info_dict = dict(info) if isinstance(info, dict) else {}
+        cte = info_dict.get("cte")
+        speed = float(info_dict.get("speed", 0.0) or 0.0)
+        hit = info_dict.get("hit")
+        throttle, steering = _try_get_last_raw_action(self.env)
+
+        # If we don't have cte, we can't measure centerline following.
+        if cte is None:
+            reward = -1.0
+            info_dict["centerline_v2_reward"] = {
+                "reward": float(reward),
+                "cte": None,
+                "speed": float(speed),
+                "throttle": float(throttle),
+                "steering": float(steering),
+                "note": "missing_cte",
+            }
+            if len(result) == 5:
+                return obs, float(reward), bool(terminated), bool(truncated), info_dict
+            return obs, float(reward), bool(done), info_dict
+
+        max_cte = float(self.cfg.max_cte)
+        abs_cte = abs(float(cte))
+        offtrack = bool(abs_cte > max_cte)
+        collision = bool(isinstance(hit, str) and hit != "none")
+
+        if offtrack:
+            reward = -float(self.cfg.offtrack_penalty)
+        else:
+            # Centerline term: in [0,1], 1 at center, 0 at edge.
+            center_score = float(np.clip(1.0 - (abs_cte / max_cte), 0.0, 1.0))
+
+            reward = 0.0
+            reward += float(self.cfg.w_center) * center_score
+            reward += float(self.cfg.w_speed) * float(speed)
+
+            # Anti-stall: discourage stopping on track.
+            if float(speed) < float(self.cfg.min_speed):
+                reward -= float(self.cfg.w_stall) * float(self.cfg.min_speed - float(speed))
+
+            # Smoothness: penalize steering magnitude and steering change.
+            steer_rate = float(steering) - float(self._prev_steering)
+            reward -= float(self.cfg.w_smooth) * float((steering**2) + (steer_rate**2))
+            self._prev_steering = float(steering)
+
+            # Caution: going fast while turning or off-center is risky.
+            # (Simple proxy: speed * (|steer| + |cte|/max_cte))
+            risk = float(abs(float(steering)) + (abs_cte / max_cte))
+            reward -= float(self.cfg.w_caution) * float(speed) * risk
+
+        if collision:
+            reward -= float(self.cfg.collision_penalty)
+
+        info_dict["centerline_v2_reward"] = {
+            "reward": float(reward),
+            "cte": float(cte),
+            "abs_cte": float(abs_cte),
+            "max_cte": float(max_cte),
+            "offtrack": bool(offtrack),
+            "speed": float(speed),
+            "throttle": float(throttle),
+            "steering": float(steering),
+            "hit": hit,
+            "collision": bool(collision),
+            "done": bool(done),
+        }
+
+        if len(result) == 5:
+            return obs, float(reward), bool(terminated), bool(truncated), info_dict
+        return obs, float(reward), bool(done), info_dict
+
+
 class JetRacerDeepRacerRewardWrapper(gym.Wrapper):
     """DeepRacer-style reward wrapper.
 
