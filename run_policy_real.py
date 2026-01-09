@@ -92,48 +92,55 @@ def _load_sb3_model(path: str, *, obs_width: int, obs_height: int):
 
     def _do_load(*, extra_custom_objects: Optional[dict] = None):
         # Override the spaces saved in the model file with our manually constructed ones.
-        # This fixes the "AttributeError: 'collections.deque' object has no attribute 'seed'"
-        # and ensuring NatureCNN gets a uint8 space.
-        
-        # We also inject policy_kwargs because deserialization of them failed (warnings above).
-        # The mismatched keys (pi_features_extractor vs features_extractor) indicate
-        # the model was likely trained with share_features_extractor=False.
-        policy_kwargs = {
-            "share_features_extractor": False
-        }
-        
         custom_objects = {
             "observation_space": obs_space,
             "action_space": act_space,
-            "policy_kwargs": policy_kwargs,
             "lr_schedule": _dummy_schedule,
             "clip_range": _dummy_schedule,
         }
         if extra_custom_objects:
             custom_objects.update(extra_custom_objects)
         
-        # We pass env=None because correct spaces are now injected via custom_objects
+        # Monkeypatch ActorCriticCnnPolicy to handle weight mismatch.
+        # The model has 'pi_features_extractor' (unshared), but SB3 1.2.0 CnnPolicy expects 'features_extractor' (shared).
+        # We cannot pass share_features_extractor=False to SB3 1.2.0.
+        # Solution: Intercept load_state_dict and map 'pi_...' to 'features_...'
+        try:
+            import stable_baselines3.common.policies
+            OriginalPolicy = stable_baselines3.common.policies.ActorCriticCnnPolicy
+            
+            class HackPolicy(OriginalPolicy):
+                def load_state_dict(self, state_dict, strict=True):
+                    new_dict = {}
+                    for k, v in state_dict.items():
+                        if k.startswith("pi_features_extractor."):
+                            # Map Policy encoder -> Shared encoder
+                            new_k = k.replace("pi_features_extractor.", "features_extractor.")
+                            new_dict[new_k] = v
+                        elif k.startswith("vf_features_extractor."):
+                            # Discard Value encoder (we only run inference on Policy)
+                            pass
+                        else:
+                            new_dict[k] = v
+                    # Disable strict mode to allow missing keys (if any) or extra keys we removed
+                    return super().load_state_dict(new_dict, strict=False)
+            
+            # Apply patch
+            stable_baselines3.common.policies.ActorCriticCnnPolicy = HackPolicy
+        except ImportError:
+            pass
+
         return PPO.load(path, device="auto", env=None, custom_objects=custom_objects)
 
     try:
         return _do_load()
     except RuntimeError as e:
         msg = str(e)
-        if "Could not infer dtype of numpy.float32" not in msg and "Unexpected key(s)" not in msg:
-            raise
-
-        # If we failed with "Unexpected key(s)" even with share_features_extractor=False,
-        # or if we hit the other error, try fallback.
-        #
-        # But wait, if share_features_extractor=False was wrong, we might need True?
-        # Standard PPO uses True. If we saw "unexpected key pi_features_extractor", that DEFINITELY
-        # means the WEIGHTS have it, so we NEED False.
-        #
-        # If the error persists or changes, we might handle it here.
-        # For now, if _do_load() failed, let's try one more permutation:
-        # maybe normalized images?
+        # If the hack didn't work and we still have issues, warn user
+        if "Unexpected key(s)" in msg:
+             print("WARNING: State dict mismatch persisted. Attempting fallback...")
         
-        print(f"Initial load failed: {e}. Retrying with SafeNatureCNN fallback...")
+        # Fallback logic...
 
         # Fallback: SB3's default NatureCNN uses observation_space.sample() to call CNN.
         # If standard Box.sample() is broken on this system, patch the extractor.
