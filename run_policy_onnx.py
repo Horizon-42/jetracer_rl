@@ -73,7 +73,7 @@ def main():
     # Jetson Nano CSI 摄像头通常需要 GStreamer 字符串，USB 摄像头直接用 index
     gst_str = (
         f"nvarguscamerasrc ! video/x-raw(memory:NVMM), width=1280, height=720, format=NV12, framerate=30/1 ! "
-        f"nvvidconv ! video/x-raw, width={args.obs_width*4}, height={args.obs_height*4}, format=BGRx ! "
+        f"nvvidconv ! video/x-raw, width={320}, height={240}, format=BGRx ! "
         f"videoconvert ! video/x-raw, format=BGR ! appsink"
     )
     
