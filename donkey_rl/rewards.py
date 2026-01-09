@@ -212,7 +212,7 @@ class CenterlineV2RewardConfig:
     w_stall: float = 1.0
 
     # Smoothness (single knob)
-    w_smooth: float = 0.15
+    w_smooth: float = 0.3
 
     # Caution: penalize high speed when steering or off-center
     w_caution: float = 0.6
