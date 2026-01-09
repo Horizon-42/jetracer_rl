@@ -29,8 +29,17 @@ source "${ENV_DIR}/bin/activate"
 echo "[setup_nano] Upgrading pip tooling (Python 3.6 compatible pins)"
 python -m pip install --upgrade "pip==21.3.1" "setuptools<65" wheel
 
-echo "[setup_nano] Installing core deps (NumPy pinned for Py3.6)"
-python -m pip install --upgrade "numpy==1.19.5" pillow
+# Use system numpy (from apt) to avoid Illegal Instruction on Nano's Cortex-A57.
+# Do NOT pip install numpy; rely on --system-site-packages.
+echo "[setup_nano] Checking system numpy (from apt)..."
+if ! python -c "import numpy; print('numpy ok:', numpy.__version__)" 2>/dev/null; then
+  echo "ERROR: System numpy not working. Install via apt:" >&2
+  echo "  sudo apt-get install -y python3-numpy" >&2
+  exit 1
+fi
+
+echo "[setup_nano] Installing pillow"
+python -m pip install --upgrade pillow
 
 # OpenCV: prefer JetPack apt packages, accessed via --system-site-packages.
 python - <<'PY'
