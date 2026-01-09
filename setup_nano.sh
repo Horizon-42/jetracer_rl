@@ -103,7 +103,18 @@ if [[ "${TORCH_WHEEL_TO_USE}" =~ ^https?:// ]]; then
   
   # Check if the cached wheel already exists
   if [[ -f "${CACHED_WHEEL}" ]]; then
-    echo "  Found local file '${CACHED_WHEEL}'. Skipping download."
+    echo "  Found local file '${CACHED_WHEEL}'."
+    # Verify it acts like a zip file (wheels are zip files)
+    if ! python -c "import zipfile, sys; zipfile.ZipFile(sys.argv[1])" "${CACHED_WHEEL}" >/dev/null 2>&1; then
+      echo "  WARNING: Local file is corrupt or not a zip file. Deleting..."
+      rm -f "${CACHED_WHEEL}"
+    else
+      echo "  Local file verified as valid."
+    fi
+  fi
+
+  if [[ -f "${CACHED_WHEEL}" ]]; then
+    echo "  Skipping download, using existing '${CACHED_WHEEL}'."
     WHEEL_TO_INSTALL="${CACHED_WHEEL}"
   else
     echo "  Downloading to '${CACHED_WHEEL}'..."
