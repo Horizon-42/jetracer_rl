@@ -1,72 +1,97 @@
-import torch
+import argparse
+import sys
 import numpy as np
+import torch as th
+import onnx
+import onnxruntime as ort
 from stable_baselines3 import PPO
-from gymnasium import spaces
 
-MODEL_ZIP = "models/JetRacer_20/best_model.zip"
-OUTPUT_ONNX = "ppo_policy.onnx"
-OPSET = 11
-
-
-def make_dummy_obs(obs_space):
+# --- 1. 定义导出包装器 ---
+class OnnxablePolicy(th.nn.Module):
     """
-    根据 observation_space 自动构造 dummy obs
+    包装 SB3 的策略，只输出确定性的动作 (Deterministic Action / Mean)。
+    去掉了 Value Net 和 Log Prob 计算，只保留 Actor 部分。
     """
-    if isinstance(obs_space, spaces.Box):
-        shape = obs_space.shape
-        dummy = torch.randn((1,) + shape)
-        return dummy
+    def __init__(self, policy):
+        super().__init__()
+        self.policy = policy
 
-    elif isinstance(obs_space, spaces.Dict):
-        dummy = {}
-        for k, space in obs_space.spaces.items():
-            dummy[k] = make_dummy_obs(space)
-        return dummy
+    def forward(self, observation):
+        # deterministic=True 让 SB3 返回高斯分布的均值 (Mean)
+        # policy() 返回 (actions, values, log_probs)，我们只需要 actions [0]
+        return self.policy(observation, deterministic=True)[0]
 
-    else:
-        raise NotImplementedError(
-            f"Unsupported observation space: {type(obs_space)}"
-        )
+def export_model(model_path, output_path, obs_shape):
+    print(f"Loading SB3 model from: {model_path}")
+    
+    # 强制加载到 CPU，避免设备不匹配问题
+    try:
+        model = PPO.load(model_path, device="cpu")
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        return
 
+    # 创建包装后的模型
+    onnx_policy = OnnxablePolicy(model.policy)
+    
+    # 创建 Dummy Input (根据你的观察空间，通常是 1, 3, H, W)
+    # 注意：这里假设输入是 float32 (已经归一化)。
+    # 如果你的模型包含预处理层（比如 Normalize），输入可能是 uint8。
+    # 大多数 SB3 CNN 策略内部都接受 float 输入。
+    dummy_input = th.randn(1, *obs_shape)
+
+    print(f"Exporting to ONNX: {output_path} ...")
+    th.onnx.export(
+        onnx_policy,
+        dummy_input,
+        output_path,
+        opset_version=11,          # Jetson/Py3.6 建议使用 opset 11
+        input_names=["input"],     # 输入节点名称
+        output_names=["action"],   # 输出节点名称
+        dynamic_axes={
+            "input": {0: "batch_size"},  # 支持动态 Batch Size
+            "action": {0: "batch_size"}
+        }
+    )
+    print("Export complete.")
+    
+    # --- 验证环节 ---
+    verify_export(onnx_policy, output_path, dummy_input)
+
+def verify_export(torch_model, onnx_path, dummy_input):
+    print("\nVerifying exported model...")
+    
+    # 1. PyTorch 推理
+    with th.no_grad():
+        torch_out = torch_model(dummy_input).numpy()
+    
+    # 2. ONNX Runtime 推理
+    sess = ort.InferenceSession(onnx_path, providers=['CPUExecutionProvider'])
+    input_name = sess.get_inputs()[0].name
+    onnx_out = sess.run(None, {input_name: dummy_input.numpy()})[0]
+
+    # 3. 对比
+    # 允许一定的浮点误差 (atol=1e-5)
+    try:
+        np.testing.assert_allclose(torch_out, onnx_out, rtol=1e-03, atol=1e-05)
+        print("✅ SUCCESS: ONNX model matches PyTorch model outputs.")
+        print(f"   Max absolute difference: {np.max(np.abs(torch_out - onnx_out)):.8f}")
+    except AssertionError as e:
+        print("❌ WARNING: Model outputs mismatch!")
+        print(e)
 
 def main():
-    model = PPO.load(MODEL_ZIP, device="cpu")
-    policy = model.policy
-    policy.eval()
-
-    obs_space = model.observation_space
-    print("Observation space:", obs_space)
-    print("Policy type:", type(policy))
-
-    dummy_obs = make_dummy_obs(obs_space)
-
-    # forward dry-run（强烈建议保留）
-    with torch.no_grad():
-        out = policy(dummy_obs)
-        print("Policy forward output:", out)
-
-    # ONNX 输入名
-    if isinstance(obs_space, spaces.Dict):
-        input_names = list(dummy_obs.keys())
-        dynamic_axes = {
-            k: {0: "batch"} for k in input_names
-        }
-    else:
-        input_names = ["obs"]
-        dynamic_axes = {"obs": {0: "batch"}}
-
-    torch.onnx.export(
-        policy,
-        dummy_obs,
-        OUTPUT_ONNX,
-        opset_version=OPSET,
-        input_names=input_names,
-        output_names=["actions", "values", "log_probs"],
-        dynamic_axes=dynamic_axes,
-    )
-
-    print(f"✅ Exported ONNX model to {OUTPUT_ONNX}")
-
+    parser = argparse.ArgumentParser(description="Convert SB3 PPO model to ONNX")
+    parser.add_argument("--model", type=str, required=True, help="Path to .zip model file")
+    parser.add_argument("--output", type=str, default="model.onnx", help="Output .onnx file path")
+    parser.add_argument("--height", type=int, default=84, help="Observation height (default: 84)")
+    parser.add_argument("--width", type=int, default=84, help="Observation width (default: 84)")
+    parser.add_argument("--channels", type=int, default=3, help="Observation channels (default: 3)")
+    
+    args = parser.parse_args()
+    
+    obs_shape = (args.channels, args.height, args.width)
+    export_model(args.model, args.output, obs_shape)
 
 if __name__ == "__main__":
     main()
