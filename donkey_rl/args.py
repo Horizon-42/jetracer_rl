@@ -83,20 +83,31 @@ def parse_args() -> argparse.Namespace:
     # Domain randomization (sim -> real): photometric + action dynamics
     parser.add_argument(
         "--domain-rand",
-        action="store_true",
-        help="Enable photometric augmentation (brightness/contrast/noise) on sim observations.",
+        action="store_false",
+        default=True,
+        help="Disable photometric augmentation (brightness/contrast/noise/color) on sim observations (enabled by default).",
     )
     parser.add_argument("--aug-brightness", type=float, default=0.25, help="Brightness jitter amplitude (in [0,1]).")
     parser.add_argument("--aug-contrast", type=float, default=0.25, help="Contrast jitter amplitude (multiplier around 1.0).")
     parser.add_argument("--aug-noise-std", type=float, default=0.02, help="Gaussian noise std (in [0,1]).")
+    parser.add_argument("--aug-color-jitter", type=float, default=0.2, help="Color jitter amplitude for HSV adjustments (hue/saturation/value).")
 
     parser.add_argument(
         "--random-friction",
-        action="store_true",
-        help="Enable per-episode random friction (implemented as throttle scaling).",
+        action="store_false",
+        default=True,
+        help="Disable per-episode random friction (enabled by default, implemented as throttle scaling).",
     )
     parser.add_argument("--friction-min", type=float, default=0.6, help="Min throttle scale when random friction enabled.")
     parser.add_argument("--friction-max", type=float, default=1.0, help="Max throttle scale when random friction enabled.")
+
+    # Loading existing policy for continued training
+    parser.add_argument(
+        "--load-model",
+        type=str,
+        default="",
+        help="Path to existing model checkpoint to load and continue training from.",
+    )
 
     # Latent features (autoencoder)
     parser.add_argument(

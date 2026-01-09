@@ -92,6 +92,7 @@ def build_env_fn(
     aug_brightness: float,
     aug_contrast: float,
     aug_noise_std: float,
+    aug_color_jitter: float,
     random_friction: bool,
     friction_min: float,
     friction_max: float,
@@ -146,6 +147,7 @@ def build_env_fn(
             aug_brightness=aug_brightness,
             aug_contrast=aug_contrast,
             aug_noise_std=aug_noise_std,
+            aug_color_jitter=aug_color_jitter,
         )
         return env
 

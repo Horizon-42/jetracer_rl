@@ -78,6 +78,7 @@ def main() -> None:
                 aug_brightness=float(getattr(args, "aug_brightness", 0.25)),
                 aug_contrast=float(getattr(args, "aug_contrast", 0.25)),
                 aug_noise_std=float(getattr(args, "aug_noise_std", 0.02)),
+                aug_color_jitter=float(getattr(args, "aug_color_jitter", 0.2)),
                 random_friction=bool(getattr(args, "random_friction", False)),
                 friction_min=float(getattr(args, "friction_min", 0.6)),
                 friction_max=float(getattr(args, "friction_max", 1.0)),
@@ -107,21 +108,30 @@ def main() -> None:
         policy = "MlpPolicy"
         policy_kwargs = latent_policy_kwargs(ae_checkpoint=ae_ckpt, freeze=not bool(getattr(args, "train_encoder", False)))
 
-    model = PPO(
-        policy=policy,
-        env=train_env,
-        verbose=1,
-        seed=args.seed,
-        policy_kwargs=policy_kwargs,
-        n_steps=1024,
-        batch_size=256,
-        learning_rate=3e-4,
-        gamma=0.99,
-        gae_lambda=0.95,
-        clip_range=0.1,
-        ent_coef=0.0,
-    )
-    model.set_logger(sb3_logger)
+    # Load existing model if specified, otherwise create new one
+    load_model_path = str(getattr(args, "load_model", "") or "").strip()
+    if load_model_path:
+        print(f"Loading existing model from: {load_model_path}")
+        model = PPO.load(load_model_path, env=train_env)
+        # Update logger for continued training
+        model.set_logger(sb3_logger)
+        print(f"Loaded model with {model.num_timesteps} timesteps already trained.")
+    else:
+        model = PPO(
+            policy=policy,
+            env=train_env,
+            verbose=1,
+            seed=args.seed,
+            policy_kwargs=policy_kwargs,
+            n_steps=1024,
+            batch_size=256,
+            learning_rate=3e-4,
+            gamma=0.99,
+            gae_lambda=0.95,
+            clip_range=0.1,
+            ent_coef=0.0,
+        )
+        model.set_logger(sb3_logger)
 
     callbacks = [TrainingVizCallback(render=args.render).sb3_callback()]
 
@@ -163,6 +173,7 @@ def main() -> None:
                     aug_brightness=float(getattr(args, "aug_brightness", 0.25)),
                     aug_contrast=float(getattr(args, "aug_contrast", 0.25)),
                     aug_noise_std=float(getattr(args, "aug_noise_std", 0.02)),
+                    aug_color_jitter=float(getattr(args, "aug_color_jitter", 0.2)),
                     random_friction=False,
                     friction_min=1.0,
                     friction_max=1.0,

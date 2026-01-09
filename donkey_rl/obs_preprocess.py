@@ -33,6 +33,7 @@ class ObsPreprocess(gym.ObservationWrapper):
         aug_brightness: float = 0.25,
         aug_contrast: float = 0.25,
         aug_noise_std: float = 0.02,
+        aug_color_jitter: float = 0.2,
     ):
         super().__init__(env)
 
@@ -56,6 +57,7 @@ class ObsPreprocess(gym.ObservationWrapper):
         self._aug_brightness = float(aug_brightness)
         self._aug_contrast = float(aug_contrast)
         self._aug_noise_std = float(aug_noise_std)
+        self._aug_color_jitter = float(aug_color_jitter)
 
     def observation(self, observation: np.ndarray) -> np.ndarray:
         try:
@@ -75,6 +77,26 @@ class ObsPreprocess(gym.ObservationWrapper):
 
         x = resized.astype(np.float32) / 255.0
         if self._domain_rand:
+            # Color jitter: shift in HSV space
+            if self._aug_color_jitter > 0:
+                # Convert RGB to HSV
+                hsv = cv2.cvtColor((x * 255).astype(np.uint8), cv2.COLOR_RGB2HSV).astype(np.float32)
+                
+                # Shift Hue (0-180 in OpenCV)
+                h_shift = float(np.random.uniform(-self._aug_color_jitter * 180, self._aug_color_jitter * 180))
+                hsv[:, :, 0] = np.clip(hsv[:, :, 0] + h_shift, 0, 180)
+                
+                # Shift Saturation (0-255)
+                s_shift = float(np.random.uniform(-self._aug_color_jitter * 255, self._aug_color_jitter * 255))
+                hsv[:, :, 1] = np.clip(hsv[:, :, 1] + s_shift, 0, 255)
+                
+                # Shift Value (0-255)
+                v_shift = float(np.random.uniform(-self._aug_color_jitter * 255, self._aug_color_jitter * 255))
+                hsv[:, :, 2] = np.clip(hsv[:, :, 2] + v_shift, 0, 255)
+                
+                # Convert back to RGB
+                x = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB).astype(np.float32) / 255.0
+
             # Contrast: multiply around 1.0
             if self._aug_contrast > 0:
                 c = 1.0 + float(np.random.uniform(-self._aug_contrast, self._aug_contrast))
