@@ -95,6 +95,7 @@ def main():
 
             # 读取帧
             ret, frame = cap.read()
+            print(frame.shape)
             if not ret:
                 print("Failed to read frame")
                 continue
