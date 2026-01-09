@@ -12,19 +12,29 @@ This repo’s training stack (SB3 2.x + Gymnasium) is NOT compatible with Python
 For Nano we recommend a separate inference-only environment:
 
 ```bash
-# 1) (on Jetson) make sure pip + OpenCV are installed
+# ===== Complete Jetson Nano Setup =====
+
+# Step 1: Install system dependencies (numpy/opencv from apt to avoid Illegal Instruction)
 sudo apt-get update
-sudo apt-get install -y python3-pip python3-opencv
+sudo apt-get install -y python3-pip python3-numpy python3-opencv
 
-# 2) (optional) override torch wheel (path or URL)
-# If you do NOT set this, setup_nano.sh will use the default NVIDIA Box wheel URL.
-# export TORCH_WHEEL=/path/to/torch-*-cp36-cp36m-linux_aarch64.whl
+# Step 2: (IMPORTANT) Delete old venv if exists (ensures clean install)
+rm -rf .venv_nano_py36
 
-# 3) run the nano setup
+# Step 3: Run setup script (installs virtualenv, torch, sb3, etc.)
 bash setup_nano.sh
 
-# 4) activate
+# Step 4: Activate the environment
 source .venv_nano_py36/bin/activate
+
+# Step 5: Verify everything works
+python -c "import numpy; import cv2; import torch; import stable_baselines3; print('All OK!')"
+```
+
+**Note**: If you need a different PyTorch wheel for your JetPack version, set before running:
+```bash
+export TORCH_WHEEL=/path/to/your/torch-xxx.whl
+bash setup_nano.sh
 ```
 
 
