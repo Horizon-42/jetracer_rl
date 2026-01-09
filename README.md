@@ -12,9 +12,9 @@ This repo’s training stack (SB3 2.x + Gymnasium) is NOT compatible with Python
 For Nano we recommend a separate inference-only environment:
 
 ```bash
-# 1) (on Jetson) make sure venv + OpenCV are installed
+# 1) (on Jetson) make sure pip + OpenCV are installed
 sudo apt-get update
-sudo apt-get install -y python3.6-venv python3-opencv
+sudo apt-get install -y python3-pip python3-opencv
 
 # 2) (optional) override torch wheel (path or URL)
 # If you do NOT set this, setup_nano.sh will use the default NVIDIA Box wheel URL.

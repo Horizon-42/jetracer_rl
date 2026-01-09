@@ -15,15 +15,12 @@ if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   exit 1
 fi
 
-# Make sure venv module exists
-if ! "${PYTHON_BIN}" -c "import venv" >/dev/null 2>&1; then
-  echo "ERROR: python3.6 venv module missing. Install: sudo apt-get install -y python3.6-venv" >&2
-  exit 1
-fi
-
+# Use pip-installed virtualenv to avoid apt python3.6-venv version mismatch
 if [[ ! -d "${ENV_DIR}" ]]; then
-  echo "[setup_nano] Creating venv at ${ENV_DIR} (with system site-packages so cv2 from apt works)"
-  "${PYTHON_BIN}" -m venv --system-site-packages "${ENV_DIR}"
+  echo "[setup_nano] Installing virtualenv via pip (avoids apt version conflicts)"
+  "${PYTHON_BIN}" -m pip install --user virtualenv
+  echo "[setup_nano] Creating virtualenv at ${ENV_DIR} (with system site-packages so cv2 from apt works)"
+  "${PYTHON_BIN}" -m virtualenv --system-site-packages "${ENV_DIR}"
 fi
 
 # shellcheck disable=SC1090
