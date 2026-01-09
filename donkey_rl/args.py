@@ -53,8 +53,8 @@ def parse_args() -> argparse.Namespace:
         "--reward-type",
         type=str,
         default="base",
-        choices=["base", "track_limit", "deepracer", "centerline_v2"],
-        help="Reward function: base, track_limit, deepracer, or centerline_v2 (centerline+speed+smooth+caution).",
+        choices=["base", "track_limit", "deepracer", "centerline_v2", "centerline_v3"],
+        help="Reward function: base, track_limit, deepracer, centerline_v2, or centerline_v3 (simpler anti-stall).",
     )
     parser.add_argument(
         "--max-cte",
@@ -73,6 +73,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--v2-w-speed", type=float, default=0.8, help="centerline_v2: speed reward weight")
     parser.add_argument("--v2-w-caution", type=float, default=0.6, help="centerline_v2: caution penalty weight")
     parser.add_argument("--v2-min-speed", type=float, default=0.2, help="centerline_v2: anti-stall minimum speed")
+
+    # Reward tuning knobs for centerline_v3 (even simpler, stronger anti-stall)
+    parser.add_argument("--v3-w-speed", type=float, default=1.2, help="centerline_v3: speed reward weight")
+    parser.add_argument("--v3-min-speed", type=float, default=0.35, help="centerline_v3: minimum desired speed")
+    parser.add_argument("--v3-w-stall", type=float, default=2.0, help="centerline_v3: penalty weight for speed below v3-min-speed")
+    parser.add_argument("--v3-alive-bonus", type=float, default=0.02, help="centerline_v3: small per-step bonus")
 
     # Training
     parser.add_argument("--seed", type=int, default=0)

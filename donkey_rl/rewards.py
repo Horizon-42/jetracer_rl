@@ -222,6 +222,119 @@ class CenterlineV2RewardConfig:
     collision_penalty: float = 50.0
 
 
+@dataclass(frozen=True)
+class CenterlineV3RewardConfig:
+    """Simpler centerline+speed reward with stronger anti-stall bias.
+
+    Compared to CenterlineV2:
+    - Drops smoothness/caution terms (less parameters, less risk of learning to stop).
+    - Keeps: centerline score, speed reward, anti-stall penalty, safety penalties.
+    """
+
+    max_cte: float = 8.0
+
+    # Core terms
+    w_center: float = 1.0
+    w_speed: float = 1.2
+
+    # Anti-stall
+    min_speed: float = 0.35
+    w_stall: float = 2.0
+
+    # Small per-step bias to avoid the zero-action local optimum.
+    alive_bonus: float = 0.02
+
+    # Safety penalties
+    offtrack_penalty: float = 50.0
+    collision_penalty: float = 50.0
+
+
+class JetRacerCenterlineV3RewardWrapper(gym.Wrapper):
+    """Reward wrapper implementing CenterlineV3RewardConfig.
+
+    Adds info under `info["centerline_v3_reward"]`.
+    """
+
+    def __init__(self, env: gym.Env, cfg: CenterlineV3RewardConfig = CenterlineV3RewardConfig()):
+        super().__init__(env)
+        self.cfg = cfg
+
+    def step(self, action):
+        result = self.env.step(action)
+        if len(result) == 5:
+            obs, _base_reward, terminated, truncated, info = result
+            done = bool(terminated or truncated)
+        else:
+            obs, _base_reward, done, info = result
+            terminated, truncated = bool(done), False
+
+        info_dict = dict(info) if isinstance(info, dict) else {}
+        cte = info_dict.get("cte")
+        speed = float(info_dict.get("speed", 0.0) or 0.0)
+        hit = info_dict.get("hit")
+        throttle, steering = _try_get_last_raw_action(self.env)
+
+        # If we don't have cte, we can't measure centerline following.
+        if cte is None:
+            reward = -1.0
+            info_dict["centerline_v3_reward"] = {
+                "reward": float(reward),
+                "cte": None,
+                "speed": float(speed),
+                "throttle": float(throttle),
+                "steering": float(steering),
+                "note": "missing_cte",
+                "done": bool(done),
+            }
+            if len(result) == 5:
+                return obs, float(reward), bool(terminated), bool(truncated), info_dict
+            return obs, float(reward), bool(done), info_dict
+
+        max_cte = float(self.cfg.max_cte)
+        abs_cte = abs(float(cte))
+        offtrack = bool(abs_cte > max_cte)
+        collision = bool(isinstance(hit, str) and hit != "none")
+
+        if offtrack:
+            reward = -float(self.cfg.offtrack_penalty)
+        else:
+            # Centerline term: in [0,1], 1 at center, 0 at edge.
+            center_score = float(np.clip(1.0 - (abs_cte / max_cte), 0.0, 1.0))
+
+            reward = 0.0
+            reward += float(self.cfg.alive_bonus)
+            reward += float(self.cfg.w_center) * center_score
+            reward += float(self.cfg.w_speed) * float(speed)
+
+            # Strong anti-stall: penalize being below min_speed.
+            if float(speed) < float(self.cfg.min_speed):
+                # Use a proportional penalty to keep gradients smooth.
+                gap = float(self.cfg.min_speed) - float(speed)
+                reward -= float(self.cfg.w_stall) * gap
+
+        if collision:
+            reward -= float(self.cfg.collision_penalty)
+
+        info_dict["centerline_v3_reward"] = {
+            "reward": float(reward),
+            "cte": float(cte),
+            "abs_cte": float(abs_cte),
+            "max_cte": float(max_cte),
+            "offtrack": bool(offtrack),
+            "speed": float(speed),
+            "min_speed": float(self.cfg.min_speed),
+            "throttle": float(throttle),
+            "steering": float(steering),
+            "hit": hit,
+            "collision": bool(collision),
+            "done": bool(done),
+        }
+
+        if len(result) == 5:
+            return obs, float(reward), bool(terminated), bool(truncated), info_dict
+        return obs, float(reward), bool(done), info_dict
+
+
 class JetRacerCenterlineV2RewardWrapper(gym.Wrapper):
     """Reward wrapper implementing CenterlineV2RewardConfig.
 

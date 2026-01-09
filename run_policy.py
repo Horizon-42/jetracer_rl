@@ -64,6 +64,7 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument("--steps", type=int, default=0, help="If >0, stop after N environment steps")
     p.add_argument("--render", action="store_true", help="Call env.render() each step (may be no-op)")
+    p.add_argument("--max-cte", type=float, default=8.0, help="Off-track threshold in sim (passed to env conf)")
 
     # Real options
     p.add_argument("--camera", type=int, default=0, help="cv2.VideoCapture device index")
@@ -78,7 +79,7 @@ def _parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def _make_sim_env(*, env_id: str, host: str, port: int, exe_path: str, obs_width: int, obs_height: int):
+def _make_sim_env(*, env_id: str, host: str, port: int, exe_path: str, obs_width: int, obs_height: int, max_cte: float):
     from donkey_rl.compat import patch_gym_donkeycar_stop_join, patch_old_gym_render_mode
 
     patch_old_gym_render_mode()
@@ -98,7 +99,7 @@ def _make_sim_env(*, env_id: str, host: str, port: int, exe_path: str, obs_width
         "exe_path": exe_path,
         "host": host,
         "port": int(port),
-        "max_cte": 8.0,
+        "max_cte": float(max_cte),
         "body_style": "donkey",
         "body_rgb": (255, 165, 0),
         "car_name": "JetRacerRunner",
@@ -163,6 +164,7 @@ def _run_sim(args: argparse.Namespace) -> None:
         exe_path=str(args.exe_path),
         obs_width=int(args.obs_width),
         obs_height=int(args.obs_height),
+        max_cte=float(getattr(args, "max_cte", 8.0)),
     )
 
     model = _load_sb3_model(str(args.model))

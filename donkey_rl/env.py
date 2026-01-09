@@ -7,9 +7,11 @@ import gymnasium as gym
 from donkey_rl.compat import patch_gym_donkeycar_stop_join, patch_old_gym_render_mode
 from donkey_rl.obs_preprocess import ObsPreprocess
 from donkey_rl.rewards import (
+    CenterlineV3RewardConfig,
     CenterlineV2RewardConfig,
     DeepRacerStyleRewardConfig,
     DonkeyTrackLimitRewardConfig,
+    JetRacerCenterlineV3RewardWrapper,
     JetRacerCenterlineV2RewardWrapper,
     JetRacerDeepRacerRewardWrapper,
     JetRacerRaceRewardWrapper,
@@ -86,6 +88,10 @@ def build_env_fn(
     v2_w_speed: float,
     v2_w_caution: float,
     v2_min_speed: float,
+    v3_w_speed: float,
+    v3_min_speed: float,
+    v3_w_stall: float,
+    v3_alive_bonus: float,
     obs_width: int,
     obs_height: int,
     domain_rand: bool,
@@ -134,6 +140,17 @@ def build_env_fn(
                     w_speed=float(v2_w_speed),
                     w_caution=float(v2_w_caution),
                     min_speed=float(v2_min_speed),
+                ),
+            )
+        elif reward_type == "centerline_v3":
+            env = JetRacerCenterlineV3RewardWrapper(
+                env,
+                cfg=CenterlineV3RewardConfig(
+                    max_cte=max_cte,
+                    w_speed=float(v3_w_speed),
+                    min_speed=float(v3_min_speed),
+                    w_stall=float(v3_w_stall),
+                    alive_bonus=float(v3_alive_bonus),
                 ),
             )
         else:
