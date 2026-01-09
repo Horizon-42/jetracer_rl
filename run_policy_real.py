@@ -7,8 +7,13 @@ from typing import Iterator, List, Optional, Sequence, Tuple
 # Python 3.6/3.7 pickle backport to support protocol 5 (used by newer torch/SB3 models)
 if sys.version_info < (3, 8):
     try:
-        import pickle5 as pickle
-        sys.modules["pickle"] = pickle
+        import pickle5
+        import pickle
+        # Monkeypatch pickle to use pickle5's loader, but keep original module
+        # This allows 'import pickle' to still provide private attrs like _getattribute (needed by torch)
+        pickle.Unpickler = pickle5.Unpickler
+        pickle.load = pickle5.load
+        pickle.loads = pickle5.loads
     except ImportError:
         pass
 
