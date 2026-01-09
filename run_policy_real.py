@@ -21,7 +21,7 @@ def _clip_action(a: Action) -> Action:
     return Action(throttle=thr, steering=steer)
 
 
-def _load_sb3_model(path: str):
+def _load_sb3_model(path: str, *, obs_width: int, obs_height: int):
     if not os.path.exists(path):
         raise SystemExit(f"Model not found: {path}")
 
@@ -30,7 +30,36 @@ def _load_sb3_model(path: str):
     except ModuleNotFoundError as e:
         raise SystemExit("stable-baselines3 not installed in this environment") from e
 
-    return PPO.load(path, device="auto")
+    # Jetson/Nano environments sometimes end up with a broken/unpickled observation_space
+    # (often due to gym/gymnasium/numpy version mismatches). SB3 then crashes while
+    # computing CNN shapes during load.
+    #
+    # Workaround: explicitly provide the expected spaces.
+    try:
+        import gymnasium as _gym  # type: ignore
+    except Exception:  # pragma: no cover
+        import gym as _gym  # type: ignore
+
+    obs_space = _gym.spaces.Box(
+        low=0.0,
+        high=1.0,
+        shape=(3, int(obs_height), int(obs_width)),
+        dtype=np.float32,
+    )
+    act_space = _gym.spaces.Box(
+        low=np.array([-0.5, -1.0], dtype=np.float32),
+        high=np.array([1.0, 1.0], dtype=np.float32),
+        dtype=np.float32,
+    )
+
+    return PPO.load(
+        path,
+        device="auto",
+        custom_objects={
+            "observation_space": obs_space,
+            "action_space": act_space,
+        },
+    )
 
 
 def _predict_action(model, obs_chw_float01: np.ndarray, *, deterministic: bool) -> Action:
@@ -184,7 +213,7 @@ def main() -> None:
 
     from donkey_rl.real_obs_preprocess import preprocess_real_frame_bgr_to_chw_float01
 
-    model = _load_sb3_model(str(args.model))
+    model = _load_sb3_model(str(args.model), obs_width=int(args.obs_width), obs_height=int(args.obs_height))
 
     actuator: Optional[_JetRacerActuator] = None
     if str(args.mode) == "real":
