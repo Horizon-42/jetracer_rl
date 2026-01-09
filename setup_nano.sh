@@ -152,7 +152,9 @@ python -m pip install --quiet --upgrade \
   cloudpickle \
   pickle5 \
   gymnasium \
-  pillow
+  pillow \
+  onnx
+  onnxruntime
 
 # Verify SB3
 if python -c "import stable_baselines3; print('  OK: stable-baselines3', stable_baselines3.__version__)" 2>/dev/null; then
