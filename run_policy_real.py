@@ -1,7 +1,16 @@
 import argparse
 import os
+import sys
 import time
 from typing import Iterator, List, Optional, Sequence, Tuple
+
+# Python 3.6/3.7 pickle backport to support protocol 5 (used by newer torch/SB3 models)
+if sys.version_info < (3, 8):
+    try:
+        import pickle5 as pickle
+        sys.modules["pickle"] = pickle
+    except ImportError:
+        pass
 
 import numpy as np
 

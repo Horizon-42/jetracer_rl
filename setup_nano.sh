@@ -150,6 +150,7 @@ python -m pip install --quiet --upgrade \
   "gym==0.21.0" \
   "stable-baselines3==1.2.0" \
   cloudpickle \
+  pickle5 \
   pillow
 
 # Verify SB3
