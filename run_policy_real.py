@@ -59,39 +59,15 @@ def _load_sb3_model(path: str, *, obs_width: int, obs_height: int):
     # computing CNN shapes during load.
     #
     # Workaround: explicitly provide the expected spaces.
-    # Provide a minimal env so SB3 reliably uses these spaces during load.
-    # This avoids failures when the pickled spaces inside the model are incompatible
-    # with the runtime gym/numpy versions (common on Jetson images).
-    try:
-        import gymnasium as _gym  # type: ignore
-    except Exception:  # pragma: no cover
-        import gym as _gym  # type: ignore
-
-    # Minimal dummy env
-    class _DummyEnv(_gym.Env):  # type: ignore[misc]
-        # We leave obs/action spaces None here; SB3 loader will populate them from the model
-        metadata = {}
-        
-        def reset(self, *args, **kwargs):  # type: ignore[override]
-            obs = np.zeros((3, int(obs_height), int(obs_width)), dtype=np.uint8)
-            info = {}
-            return obs, info
-
-        def step(self, action):  # type: ignore[override]
-            obs = np.zeros((3, int(obs_height), int(obs_width)), dtype=np.uint8)
-            reward = 0.0
-            terminated = False
-            truncated = False
-            info = {}
-            return obs, reward, terminated, truncated, info
-
-    dummy_env = _DummyEnv()
-
+    # SB3 PPO load
+    # We pass env=None because we only need the policy for inference.
+    # The loading mechanism should now correctly deserialize spaces from the model file
+    # (thanks to pickle5 and gymnasium shims).
     def _do_load(*, extra_custom_objects: Optional[dict] = None):
         custom_objects = {}
         if extra_custom_objects:
             custom_objects.update(extra_custom_objects)
-        return PPO.load(path, device="auto", env=dummy_env, custom_objects=custom_objects)
+        return PPO.load(path, device="auto", env=None, custom_objects=custom_objects)
 
     try:
         return _do_load()
