@@ -17,6 +17,17 @@ if sys.version_info < (3, 8):
     except ImportError:
         pass
 
+# Shim for gymnasium (if missing, alias it to gym)
+# Newer SB3 models pickle references to 'gymnasium', but on Jetson (Py3.6) we might only have 'gym'.
+try:
+    import gymnasium
+except ImportError:
+    try:
+        import gym
+        sys.modules["gymnasium"] = gym
+    except ImportError:
+        pass
+
 import numpy as np
 
 

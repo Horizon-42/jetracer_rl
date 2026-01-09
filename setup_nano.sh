@@ -151,6 +151,7 @@ python -m pip install --quiet --upgrade \
   "stable-baselines3==1.2.0" \
   cloudpickle \
   pickle5 \
+  gymnasium \
   pillow
 
 # Verify SB3
