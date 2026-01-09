@@ -52,9 +52,37 @@ def _load_sb3_model(path: str, *, obs_width: int, obs_height: int):
         dtype=np.float32,
     )
 
+    # Provide a minimal env so SB3 reliably uses these spaces during load.
+    # This avoids failures when the pickled spaces inside the model are incompatible
+    # with the runtime gym/numpy versions (common on Jetson images).
+    class _DummyEnv(_gym.Env):  # type: ignore[misc]
+        observation_space = obs_space
+        action_space = act_space
+
+        def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):  # type: ignore[override]
+            if hasattr(super(), "reset"):
+                try:
+                    super().reset(seed=seed)
+                except Exception:
+                    pass
+            obs = np.zeros((3, int(obs_height), int(obs_width)), dtype=np.float32)
+            info = {}
+            return obs, info
+
+        def step(self, action):  # type: ignore[override]
+            obs = np.zeros((3, int(obs_height), int(obs_width)), dtype=np.float32)
+            reward = 0.0
+            terminated = False
+            truncated = False
+            info = {}
+            return obs, reward, terminated, truncated, info
+
+    dummy_env = _DummyEnv()
+
     return PPO.load(
         path,
         device="auto",
+        env=dummy_env,
         custom_objects={
             "observation_space": obs_space,
             "action_space": act_space,
