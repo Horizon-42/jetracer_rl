@@ -93,8 +93,39 @@ echo "  OK: pip $(pip --version | awk '{print $2}')"
 # --- Step 7: Install PyTorch ---
 echo ""
 echo "[Step 7/8] Installing PyTorch..."
-echo "  Wheel: ${TORCH_WHEEL_TO_USE}"
-python -m pip install --quiet --no-cache-dir "${TORCH_WHEEL_TO_USE}"
+
+# We use a fixed local filename for the cached wheel
+# This corresponds to the default URL's content (PyTorch 1.10.0)
+CACHED_WHEEL="torch-1.10.0-cp36-cp36m-linux_aarch64.whl"
+
+if [[ "${TORCH_WHEEL_TO_USE}" =~ ^https?:// ]]; then
+  echo "  Source is URL: ${TORCH_WHEEL_TO_USE}"
+  
+  # Check if the cached wheel already exists
+  if [[ -f "${CACHED_WHEEL}" ]]; then
+    echo "  Found local file '${CACHED_WHEEL}'. Skipping download."
+    WHEEL_TO_INSTALL="${CACHED_WHEEL}"
+  else
+    echo "  Downloading to '${CACHED_WHEEL}'..."
+    if command -v wget >/dev/null 2>&1; then
+      wget --quiet --show-progress --no-check-certificate -O "${CACHED_WHEEL}" "${TORCH_WHEEL_TO_USE}"
+    elif command -v curl >/dev/null 2>&1; then
+      curl -L -o "${CACHED_WHEEL}" "${TORCH_WHEEL_TO_USE}"
+    else
+      echo "ERROR: wget/curl not found, cannot download wheel."
+      exit 1
+    fi
+    WHEEL_TO_INSTALL="${CACHED_WHEEL}"
+  fi
+  
+  echo "  Installing ${WHEEL_TO_INSTALL}..."
+  python -m pip install --quiet --no-cache-dir "${WHEEL_TO_INSTALL}"
+  # We do NOT remove the file, so it can be reused
+else
+  echo "  Source is local file: ${TORCH_WHEEL_TO_USE}"
+  python -m pip install --quiet --no-cache-dir "${TORCH_WHEEL_TO_USE}"
+fi
+
 if python -c "import torch; print('  OK: torch', torch.__version__)" 2>/dev/null; then
   :
 else
