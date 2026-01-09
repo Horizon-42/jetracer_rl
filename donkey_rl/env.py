@@ -32,6 +32,7 @@ def make_donkey_env(
     exe_path: str,
     fast_mode: bool,
     max_cte: float,
+    car_name: str = "JetRacerAgent",
     io_timeout_s: float = 30.0,
 ) -> gym.Env:
     """Create a DonkeyCar env through Gymnasium+Shimmy."""
@@ -50,7 +51,7 @@ def make_donkey_env(
         "max_cte": float(max_cte),
         "body_style": "donkey",
         "body_rgb": (255, 165, 0),
-        "car_name": "JetRacerAgent",
+        "car_name": str(car_name),
         "font_size": 100,
         # Keep env observation_space consistent with the images requested from the sim.
         "cam_resolution": (240, 320, 3),
@@ -119,6 +120,7 @@ def build_env_fn(
     random_friction: bool,
     friction_min: float,
     friction_max: float,
+    car_name: str = "JetRacerAgent",
 ) -> Callable[[], gym.Env]:
     def _thunk() -> gym.Env:
         env = make_donkey_env(
@@ -128,6 +130,7 @@ def build_env_fn(
             exe_path=exe_path,
             fast_mode=fast_mode,
             max_cte=max_cte,
+            car_name=str(car_name),
             io_timeout_s=float(sim_io_timeout_s),
         )
 

@@ -179,6 +179,7 @@ def main() -> None:
                 random_friction=bool(getattr(args, "random_friction", False)),
                 friction_min=float(getattr(args, "friction_min", 0.6)),
                 friction_max=float(getattr(args, "friction_max", 1.0)),
+                car_name=str(getattr(args, "run_id", "JetRacerAgent")),
             )
         ]
     )
@@ -284,6 +285,7 @@ def main() -> None:
                     random_friction=False,
                     friction_min=1.0,
                     friction_max=1.0,
+                    car_name=str(getattr(args, "run_id", "JetRacerAgent")),
                 )
             ]
         )
