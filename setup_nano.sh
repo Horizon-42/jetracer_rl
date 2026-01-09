@@ -22,10 +22,10 @@ set -euo pipefail
 # =============================================================================
 
 ENV_DIR="${ENV_DIR:-.venv_nano_py36}"
-PYTHON_BIN="${PYTHON_BIN:-python3.6}"
+PYTHON_BIN="${PYTHON_Btorch-1.10.0-cp36-cp36m-linux_aarch64.whlIN:-python3.6}"
 
 # Default PyTorch wheel for JetPack 4.x (user-provided URL)
-DEFAULT_TORCH_WHEEL="https://developer.download.nvidia.com/compute/redist/jp/v461/pytorch/torch-1.10.0-cp36-cp36m-linux_aarch64.whl"
+DEFAULT_TORCH_WHEEL="torch-1.10.0-cp36-cp36m-linux_aarch64.whl"
 TORCH_WHEEL_TO_USE="${TORCH_WHEEL:-$DEFAULT_TORCH_WHEEL}"
 
 echo "============================================================"
