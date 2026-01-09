@@ -59,14 +59,45 @@ def _load_sb3_model(path: str, *, obs_width: int, obs_height: int):
     # computing CNN shapes during load.
     #
     # Workaround: explicitly provide the expected spaces.
-    # SB3 PPO load
-    # We pass env=None because we only need the policy for inference.
-    # The loading mechanism should now correctly deserialize spaces from the model file
-    # (thanks to pickle5 and gymnasium shims).
+    # Need to verify if 'gym' is available from the shim or import
+    try:
+        import gym
+    except ImportError:
+        pass
+
+    # Explicitly reconstruct spaces to avoid pickle deserialization issues (deque error, etc).
+    # This also ensures we use the correct types (uint8 for images) which NatureCNN expects.
+    # We use standard gym.spaces.Box which is compatible with valid gym versions.
+    
+    # 1. Observation Space: (3, H, W) in [0, 255] uint8
+    obs_space = gym.spaces.Box(
+        low=0,
+        high=255,
+        shape=(3, int(obs_height), int(obs_width)),
+        dtype=np.uint8,
+    )
+
+    # 2. Action Space: (2,) in [-1, 1] float32 (Steering, Throttle)
+    # Note: We assume standard continuous control PPO
+    act_space = gym.spaces.Box(
+        low=-1.0,
+        high=1.0,
+        shape=(2,),
+        dtype=np.float32,
+    )
+
     def _do_load(*, extra_custom_objects: Optional[dict] = None):
-        custom_objects = {}
+        # Override the spaces saved in the model file with our manually constructed ones.
+        # This fixes the "AttributeError: 'collections.deque' object has no attribute 'seed'"
+        # and ensuring NatureCNN gets a uint8 space.
+        custom_objects = {
+            "observation_space": obs_space,
+            "action_space": act_space,
+        }
         if extra_custom_objects:
             custom_objects.update(extra_custom_objects)
+        
+        # We pass env=None because correct spaces are now injected via custom_objects
         return PPO.load(path, device="auto", env=None, custom_objects=custom_objects)
 
     try:
@@ -76,9 +107,8 @@ def _load_sb3_model(path: str, *, obs_width: int, obs_height: int):
         if "Could not infer dtype of numpy.float32" not in msg:
             raise
 
-        # Fallback: SB3's default NatureCNN uses observation_space.sample() to infer
-        # CNN flatten size. On some Jetson installs, Box.sample() is broken due to
-        # gym/gymnasium/numpy/torch interactions.
+        # Fallback: SB3's default NatureCNN uses observation_space.sample() to call CNN.
+        # If standard Box.sample() is broken on this system, patch the extractor.
         try:
             import torch as th
             import torch.nn as nn
