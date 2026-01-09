@@ -16,7 +16,7 @@ class Action:
 
 
 def _clip_action(a: Action) -> Action:
-    thr = float(np.clip(a.throttle, 0.0, 1.0))
+    thr = float(np.clip(a.throttle, -0.5, 1.0))
     steer = float(np.clip(a.steering, -1.0, 1.0))
     return Action(throttle=thr, steering=steer)
 

@@ -221,6 +221,9 @@ class CenterlineV2RewardConfig:
     offtrack_penalty: float = 50.0
     collision_penalty: float = 50.0
 
+    # Penalize reversing (negative throttle)
+    reverse_penalty: float = 2.0
+
 
 @dataclass(frozen=True)
 class CenterlineV3RewardConfig:
@@ -247,6 +250,9 @@ class CenterlineV3RewardConfig:
     # Safety penalties
     offtrack_penalty: float = 50.0
     collision_penalty: float = 50.0
+
+    # Penalize reversing (negative throttle)
+    reverse_penalty: float = 2.0
 
 
 class JetRacerCenterlineV3RewardWrapper(gym.Wrapper):
@@ -312,6 +318,10 @@ class JetRacerCenterlineV3RewardWrapper(gym.Wrapper):
                 gap = float(self.cfg.min_speed) - float(speed)
                 reward -= float(self.cfg.w_stall) * gap
 
+            # Penalize reversing (negative throttle).
+            if float(throttle) < 0.0:
+                reward -= float(self.cfg.reverse_penalty) * float(-float(throttle))
+
         if collision:
             reward -= float(self.cfg.collision_penalty)
 
@@ -369,6 +379,9 @@ class CenterlineV4RewardConfig:
     # Safety penalties
     offtrack_penalty: float = 50.0
     collision_penalty: float = 50.0
+
+    # Penalize reversing (negative throttle)
+    reverse_penalty: float = 2.0
 
 
 class JetRacerCenterlineV4RewardWrapper(gym.Wrapper):
@@ -440,6 +453,10 @@ class JetRacerCenterlineV4RewardWrapper(gym.Wrapper):
             # Anti-stall: penalize being below min_speed.
             if float(speed) < float(self.cfg.min_speed):
                 reward -= float(self.cfg.w_stall) * float(float(self.cfg.min_speed) - float(speed))
+
+            # Penalize reversing (negative throttle).
+            if float(throttle) < 0.0:
+                reward -= float(self.cfg.reverse_penalty) * float(-float(throttle))
 
         if collision:
             reward -= float(self.cfg.collision_penalty)

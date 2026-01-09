@@ -81,7 +81,7 @@ class JetRacerWrapper(gym.ActionWrapper):
         self.last_mapped_action: Optional[np.ndarray] = None
 
         self.action_space = gym.spaces.Box(
-            low=np.array([0.0, -1.0], dtype=np.float32),
+            low=np.array([-0.5, -1.0], dtype=np.float32),
             high=np.array([1.0, 1.0], dtype=np.float32),
             dtype=np.float32,
         )
@@ -92,7 +92,7 @@ class JetRacerWrapper(gym.ActionWrapper):
         steering = float(raw[1])
 
         steer = np.clip(steering * self._steer_scale, -1.0, 1.0)
-        thr = np.clip(throttle * self._throttle_scale, 0.0, 1.0)
+        thr = np.clip(throttle * self._throttle_scale, -0.5, 1.0)
 
         mapped = np.array([steer, thr], dtype=np.float32)
         self.last_raw_action = raw
@@ -126,7 +126,7 @@ class RandomFrictionWrapper(gym.Wrapper):
         if a.shape[-1] >= 2:
             # Donkey action format: [steer, throttle]
             a = a.copy()
-            a[1] = np.clip(a[1] * self.friction_scale, 0.0, 1.0)
+            a[1] = np.clip(a[1] * self.friction_scale, -0.5, 1.0)
         obs, reward, terminated, truncated, info = self.env.step(a)
         if isinstance(info, dict):
             info.setdefault("friction_scale", float(self.friction_scale))
