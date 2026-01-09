@@ -114,6 +114,8 @@ def main():
             throttle = action_vals[0]
             steering = action_vals[1]
 
+            print(f"Action: throttle={throttle:.2f}, steering={steering:.2f}")
+
             # 执行
             actuator.apply(throttle, steering)
 
