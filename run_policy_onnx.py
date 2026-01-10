@@ -189,12 +189,12 @@ def main():
     parser.add_argument(
         "--perspective-transform",
         action="store_true",
-        default=False,
+        default=True,
         help="Enable perspective transformation (bird's-eye view) preprocessing (should match training)",
     )
     parser.add_argument("--fps", type=float, default=20.0, help="Target FPS for control loop")
-    parser.add_argument("--throttle-gain", type=float, default=1.0, help="Throttle gain: output = gain * throttle (default: 1.0)")
-    parser.add_argument("--steering-gain", type=float, default=1.0, help="Steering gain: output = gain * steering + offset (default: 1.0)")
+    parser.add_argument("--throttle-gain", type=float, default=0.5, help="Throttle gain: output = gain * throttle (default: 1.0)")
+    parser.add_argument("--steering-gain", type=float, default=0.5, help="Steering gain: output = gain * steering + offset (default: 1.0)")
     parser.add_argument("--steering-offset", type=float, default=0.0, help="Steering offset to correct mechanical bias (default: 0.0)")
     args = parser.parse_args()
 
