@@ -2,6 +2,8 @@ import argparse
 import time
 import sys
 import atexit
+import signal
+import threading
 import numpy as np
 import cv2
 import onnxruntime as ort
@@ -150,35 +152,85 @@ def preprocess_image(frame_bgr, model_width, model_height, perspective_transform
 # --- 3. Global Cleanup Function ---
 camera_resource = None
 actuator_resource = None
+shutdown_flag = threading.Event()
+_cleanup_done = False
 
 def cleanup_resources():
+    global _cleanup_done
+    if _cleanup_done:
+        return  # Avoid double cleanup
+    _cleanup_done = True
     """Cleanup resources on exit (normal or exception)"""
     print("\n[Cleanup] Releasing resources...")
     
-    # Stop the car
+    # Stop the car first
     if actuator_resource:
         try:
             actuator_resource.stop()
             print("- Car stopped")
-        except: pass
+        except Exception as e:
+            print(f"- Car stop error: {e}")
 
-    # Release camera (most important step)
+    # Release camera (most important step - needs careful cleanup)
     if camera_resource:
         try:
             # Stop jetcam background thread
             if hasattr(camera_resource, 'running'):
                 camera_resource.running = False
             
-            # Release OpenCV handle
+            # Wait longer for thread to notice the flag and finish
+            # This is critical for preventing segfault
+            time.sleep(0.3)
+            
+            # Try to join background thread if it exists
+            if hasattr(camera_resource, 'thread') and camera_resource.thread is not None:
+                try:
+                    if camera_resource.thread.is_alive():
+                        camera_resource.thread.join(timeout=0.5)
+                except:
+                    pass
+            
+            # Release OpenCV handle if it exists
             if hasattr(camera_resource, 'cap'):
                 if camera_resource.cap is not None:
-                    camera_resource.cap.release()
+                    try:
+                        camera_resource.cap.release()
+                    except:
+                        pass
+            
+            # For CSICamera, try to access and clean up the camera object
+            # Some jetcam versions store the actual camera in different attributes
+            if hasattr(camera_resource, 'camera'):
+                try:
+                    if camera_resource.camera is not None:
+                        # Try to release the camera if it has a release method
+                        if hasattr(camera_resource.camera, 'release'):
+                            camera_resource.camera.release()
+                        elif hasattr(camera_resource.camera, 'stop'):
+                            camera_resource.camera.stop()
+                except:
+                    pass
+            
+            # Additional wait to ensure GStreamer pipeline is fully closed
+            time.sleep(0.2)
+            
             print("- Camera released")
         except Exception as e:
             print(f"- Camera release error: {e}")
+            import traceback
+            traceback.print_exc()
 
 # Register cleanup function
 atexit.register(cleanup_resources)
+
+def signal_handler(signum, frame):
+    """Handle interrupt signals gracefully"""
+    print("\n[Signal] Interrupt received, shutting down gracefully...")
+    shutdown_flag.set()
+
+# Register signal handlers
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 # --- 4. Main Program ---
 def main():
@@ -264,12 +316,24 @@ def main():
 
     frame_count = 0
     try:
-        while True:
+        while not shutdown_flag.is_set():
             t0 = time.time()
             
+            # Check shutdown flag before blocking operations
+            if shutdown_flag.is_set():
+                break
+            
             # read() is non-blocking, gets the latest frame
-            frame = camera_resource.read()
+            try:
+                frame = camera_resource.read()
+            except Exception as e:
+                if not shutdown_flag.is_set():
+                    print(f"Camera read error: {e}")
+                break
+            
             if frame is None:
+                if shutdown_flag.is_set():
+                    break
                 print("No frame")
                 continue
 
@@ -283,6 +347,9 @@ def main():
                 perspective_size=perspective_size,
             )
             action_raw = sess.run(None, {input_name: obs})[0].flatten()
+
+            # add extra scale throttle
+            action_raw[0] = action_raw[0] * 5
 
             # clip steering to -1.0 to 1.0
             action_steering = np.clip(action_raw[1], -1.0, 1.0)
@@ -307,7 +374,16 @@ def main():
 
     except KeyboardInterrupt:
         print("\nStopping by user...")
-        # cleanup_resources() will be called automatically on exit
+        shutdown_flag.set()
+    finally:
+        # Ensure cleanup is called before exit
+        # This helps prevent segfault by cleaning up resources before Python exits
+        try:
+            cleanup_resources()
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
+            import traceback
+            traceback.print_exc()
 
 if __name__ == "__main__":
     main()
