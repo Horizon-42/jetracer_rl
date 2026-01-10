@@ -252,7 +252,7 @@ def main():
     )
     parser.add_argument("--fps", type=float, default=20.0, help="Target FPS for control loop")
     parser.add_argument("--throttle-gain", type=float, default=0.5, help="Throttle gain: output = gain * throttle (default: 1.0)")
-    parser.add_argument("--throttle-boost", type=float, default=0.25, help="Throttle boost: output = gain *(boost+throttle)")
+    parser.add_argument("--throttle-boost", type=float, default=0.3, help="Throttle boost: output = gain *(boost+throttle)")
     parser.add_argument("--throttle-scale", type=float, default=0.05, help="Throttle  scale: output = gain *(boost+scale*throttle)")
     
     parser.add_argument("--steering-gain", type=float, default=0.5, help="Steering gain: output = gain * steering + offset (default: 1.0)")
