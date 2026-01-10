@@ -84,7 +84,7 @@ def verify_export(torch_model, onnx_path, dummy_input):
 def main():
     parser = argparse.ArgumentParser(description="Convert SB3 PPO model to ONNX")
     parser.add_argument("--model", type=str, required=True, help="Path to .zip model file")
-    parser.add_argument("--output", type=str, default=".", help="Output folder path (default: current directory)")
+    parser.add_argument("--output", type=str, default="onnx_models", help="Output folder path (default: onnx_models)")
     parser.add_argument("--height", type=int, default=84, help="Observation height (default: 84)")
     parser.add_argument("--width", type=int, default=84, help="Observation width (default: 84)")
     parser.add_argument("--channels", type=int, default=3, help="Observation channels (default: 3)")
