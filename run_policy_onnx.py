@@ -283,15 +283,20 @@ def main():
                 perspective_size=perspective_size,
             )
             action_raw = sess.run(None, {input_name: obs})[0].flatten()
+
+            # clip steering to -1.0 to 1.0
+            action_steering = np.clip(action_raw[1], -1.0, 1.0)
+            # clip throttle to 0.0 to 1.0
+            action_throttle = np.clip(action_raw[0], 0.0, 1.0)
             
             # Log model output
             should_log = args.log_interval > 0 and (frame_count % args.log_interval == 0)
             if should_log:
                 print(f"[Frame {frame_count}] Model raw output: action={action_raw}, shape={action_raw.shape}, dtype={action_raw.dtype}")
-                print(f"  - Action values: throttle={action_raw[0]:.6f}, steering={action_raw[1]:.6f}")
+                print(f"  - Action values: throttle={action_throttle:.6f}, steering={action_steering:.6f}")
             
             # Execute action
-            actuator_resource.apply(action_raw[0], action_raw[1], log=should_log)
+            actuator_resource.apply(action_throttle, action_steering, log=should_log)
             
             frame_count += 1
 
