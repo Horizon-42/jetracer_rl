@@ -188,7 +188,7 @@ def main():
     parser.add_argument("--obs-height", type=int, default=84, help="Model input height (should match training)")
     parser.add_argument(
         "--perspective-transform",
-        action="store_true",
+        action="store_false",
         default=True,
         help="Enable perspective transformation (bird's-eye view) preprocessing (should match training)",
     )
