@@ -9,7 +9,7 @@ including the effects of gain parameters. It supports multiple test modes:
 - Step test: Test different values step by step
 - Interactive mode: Adjust values in real-time
 
-Python 3.6+ compatible
+Python 3.5+ compatible (tested with Python 2.7+ compatible syntax where possible)
 """
 
 from __future__ import print_function, division
@@ -37,9 +37,10 @@ class JetRacerActuator:
             self._car.throttle_gain = throttle_gain
             self._car.steering_gain = steering_gain
             self._car.steering_offset = steering_offset
-            print(f"✓ JetRacer initialized with throttle_gain={throttle_gain}, steering_gain={steering_gain}, steering_offset={steering_offset}")
+            print("JetRacer initialized with throttle_gain={:.3f}, steering_gain={:.3f}, steering_offset={:.3f}".format(
+                throttle_gain, steering_gain, steering_offset))
         except ImportError:
-            print("⚠ Warning: 'jetracer' not found. Running in mock mode.")
+            print("[WARNING] 'jetracer' not found. Running in mock mode.")
             self._car = None
     
     def set_gains(self, throttle_gain, steering_gain, steering_offset=0.0):
@@ -65,16 +66,16 @@ class JetRacerActuator:
             if log:
                 actual_throttle = clipped_throttle * self._throttle_gain
                 actual_steering = clipped_steering * self._steering_gain + self._steering_offset
-                print(f"  Input: throttle={clipped_throttle:.3f}, steering={clipped_steering:.3f} | "
-                      f"Effective: throttle={actual_throttle:.3f}, steering={actual_steering:.3f}")
+                print("  Input: throttle={:.3f}, steering={:.3f} | Effective: throttle={:.3f}, steering={:.3f}".format(
+                    clipped_throttle, clipped_steering, actual_throttle, actual_steering))
         elif log:
-            print(f"  [Mock] throttle={throttle:.3f}, steering={steering:.3f}")
+            print("  [Mock] throttle={:.3f}, steering={:.3f}".format(throttle, steering))
     
     def stop(self):
         """Stop the car"""
         if self._car:
             self._car.throttle = 0.0
-            print("✓ Car stopped")
+            print("[OK] Car stopped")
 
 
 # Global shutdown flag
@@ -111,21 +112,21 @@ def test_circle_mode(args):
     print("\n" + "="*70)
     print("CIRCLE MODE TEST")
     print("="*70)
-    print(f"Throttle: {throttle:.3f} (gain: {args.throttle_gain:.3f})")
-    print(f"Steering: {steering:.3f} (gain: {args.steering_gain:.3f}, offset: {args.steering_offset:.3f})")
-    print(f"Duration: {args.duration:.1f}s")
-    print(f"Log interval: {args.log_interval} frames")
+    print("Throttle: {:.3f} (gain: {:.3f})".format(throttle, args.throttle_gain))
+    print("Steering: {:.3f} (gain: {:.3f}, offset: {:.3f})".format(steering, args.steering_gain, args.steering_offset))
+    print("Duration: {:.1f}s".format(args.duration))
+    print("Log interval: {} frames".format(args.log_interval))
     print("="*70)
     print("Starting in 3 seconds... (Press Ctrl+C to stop early)")
     print()
     
     for i in range(3, 0, -1):
-        print(f"  {i}...")
+        print("  {}...".format(i))
         time.sleep(1)
         if shutdown_flag.is_set():
             return
     
-    print("\n✓ Starting circle test...\n")
+    print("\n[OK] Starting circle test...\n")
     
     start_time = time.time()
     frame_count = 0
@@ -137,13 +138,13 @@ def test_circle_mode(args):
             
             elapsed = time.time() - start_time
             if elapsed >= args.duration:
-                print("\n⏱ Duration reached. Stopping...")
+                print("\n[TIME] Duration reached. Stopping...")
                 break
             
             should_log = args.log_interval > 0 and (frame_count % args.log_interval == 0)
             
             if should_log:
-                print(f"[t={elapsed:6.2f}s, frame={frame_count:5d}] ", end="")
+                print("[t={:6.2f}s, frame={:5d}] ".format(elapsed, frame_count), end="")
             
             actuator.apply(throttle, steering, log=should_log)
             
@@ -155,10 +156,11 @@ def test_circle_mode(args):
                 time.sleep(dt - t_process)
     
     except KeyboardInterrupt:
-        print("\n\n⚠ Interrupted by user")
+        print("\n\n[WARNING] Interrupted by user")
     finally:
         actuator.stop()
-        print(f"\n✓ Test completed. Total frames: {frame_count}, Duration: {time.time() - start_time:.2f}s")
+        print("\nTest completed. Total frames: {}, Duration: {:.2f}s".format(
+            frame_count, time.time() - start_time))
 
 
 def test_step_mode(args):
@@ -168,21 +170,24 @@ def test_step_mode(args):
     print("\n" + "="*70)
     print("STEP TEST MODE")
     print("="*70)
-    print(f"Throttle range: {args.throttle_min:.3f} to {args.throttle_max:.3f} (step: {args.throttle_step:.3f})")
-    print(f"Steering range: {args.steering_min:.3f} to {args.steering_max:.3f} (step: {args.steering_step:.3f})")
-    print(f"Test duration per step: {args.step_duration:.1f}s")
-    print(f"Gains: throttle_gain={args.throttle_gain:.3f}, steering_gain={args.steering_gain:.3f}, steering_offset={args.steering_offset:.3f}")
+    print("Throttle range: {:.3f} to {:.3f} (step: {:.3f})".format(
+        args.throttle_min, args.throttle_max, args.throttle_step))
+    print("Steering range: {:.3f} to {:.3f} (step: {:.3f})".format(
+        args.steering_min, args.steering_max, args.steering_step))
+    print("Test duration per step: {:.1f}s".format(args.step_duration))
+    print("Gains: throttle_gain={:.3f}, steering_gain={:.3f}, steering_offset={:.3f}".format(
+        args.throttle_gain, args.steering_gain, args.steering_offset))
     print("="*70)
     print("Starting in 3 seconds... (Press Ctrl+C to stop)")
     print()
     
     for i in range(3, 0, -1):
-        print(f"  {i}...")
+        print("  {}...".format(i))
         time.sleep(1)
         if shutdown_flag.is_set():
             return
     
-    print("\n✓ Starting step test...\n")
+    print("\n[OK] Starting step test...\n")
     
     dt = 1.0 / args.fps
     step_count = 0
@@ -204,7 +209,8 @@ def test_step_mode(args):
                 if shutdown_flag.is_set():
                     break
                 
-                print(f"\n[Step {step_count + 1}] Testing throttle={throttle:.3f}, steering={args.steering:.3f}")
+                print("\n[Step {}] Testing throttle={:.3f}, steering={:.3f}".format(
+                    step_count + 1, throttle, args.steering))
                 
                 start_time = time.time()
                 frame_count = 0
@@ -218,7 +224,7 @@ def test_step_mode(args):
                     
                     should_log = args.log_interval > 0 and (frame_count % args.log_interval == 0)
                     if should_log:
-                        print(f"  [t={elapsed:5.2f}s] ", end="")
+                        print("  [t={:5.2f}s] ".format(elapsed), end="")
                     
                     actuator.apply(throttle, args.steering, log=should_log)
                     frame_count += 1
@@ -247,7 +253,8 @@ def test_step_mode(args):
                 if shutdown_flag.is_set():
                     break
                 
-                print(f"\n[Step {step_count + 1}] Testing throttle={args.throttle:.3f}, steering={steering:.3f}")
+                print("\n[Step {}] Testing throttle={:.3f}, steering={:.3f}".format(
+                    step_count + 1, args.throttle, steering))
                 
                 start_time = time.time()
                 frame_count = 0
@@ -261,7 +268,7 @@ def test_step_mode(args):
                     
                     should_log = args.log_interval > 0 and (frame_count % args.log_interval == 0)
                     if should_log:
-                        print(f"  [t={elapsed:5.2f}s] ", end="")
+                        print("  [t={:5.2f}s] ".format(elapsed), end="")
                     
                     actuator.apply(args.throttle, steering, log=should_log)
                     frame_count += 1
@@ -274,10 +281,10 @@ def test_step_mode(args):
                 time.sleep(0.5)  # Brief pause between tests
                 step_count += 1
         
-        print("\n✓ Step test completed!")
+        print("\n[OK] Step test completed!")
     
     except KeyboardInterrupt:
-        print("\n\n⚠ Interrupted by user")
+        print("\n\n[WARNING] Interrupted by user")
     finally:
         actuator.stop()
 
@@ -289,22 +296,24 @@ def test_gain_mode(args):
     print("\n" + "="*70)
     print("GAIN TEST MODE")
     print("="*70)
-    print(f"Fixed throttle: {args.throttle:.3f}")
-    print(f"Fixed steering: {args.steering:.3f}")
-    print(f"Throttle gain range: {args.throttle_gain_min:.3f} to {args.throttle_gain_max:.3f} (step: {args.throttle_gain_step:.3f})")
-    print(f"Steering gain range: {args.steering_gain_min:.3f} to {args.steering_gain_max:.3f} (step: {args.steering_gain_step:.3f})")
-    print(f"Test duration per step: {args.step_duration:.1f}s")
+    print("Fixed throttle: {:.3f}".format(args.throttle))
+    print("Fixed steering: {:.3f}".format(args.steering))
+    print("Throttle gain range: {:.3f} to {:.3f} (step: {:.3f})".format(
+        args.throttle_gain_min, args.throttle_gain_max, args.throttle_gain_step))
+    print("Steering gain range: {:.3f} to {:.3f} (step: {:.3f})".format(
+        args.steering_gain_min, args.steering_gain_max, args.steering_gain_step))
+    print("Test duration per step: {:.1f}s".format(args.step_duration))
     print("="*70)
     print("Starting in 3 seconds... (Press Ctrl+C to stop)")
     print()
     
     for i in range(3, 0, -1):
-        print(f"  {i}...")
+        print("  {}...".format(i))
         time.sleep(1)
         if shutdown_flag.is_set():
             return
     
-    print("\n✓ Starting gain test...\n")
+    print("\n[OK] Starting gain test...\n")
     
     dt = 1.0 / args.fps
     step_count = 0
@@ -326,8 +335,8 @@ def test_gain_mode(args):
                 if shutdown_flag.is_set():
                     break
                 
-                print(f"\n[Step {step_count + 1}] Testing throttle_gain={throttle_gain:.3f} "
-                      f"(effective throttle: {args.throttle * throttle_gain:.3f})")
+                print("\n[Step {}] Testing throttle_gain={:.3f} (effective throttle: {:.3f})".format(
+                    step_count + 1, throttle_gain, args.throttle * throttle_gain))
                 
                 actuator.set_gains(throttle_gain, args.steering_gain, args.steering_offset)
                 
@@ -343,7 +352,7 @@ def test_gain_mode(args):
                     
                     should_log = args.log_interval > 0 and (frame_count % args.log_interval == 0)
                     if should_log:
-                        print(f"  [t={elapsed:5.2f}s] ", end="")
+                        print("  [t={:5.2f}s] ".format(elapsed), end="")
                     
                     actuator.apply(args.throttle, args.steering, log=should_log)
                     frame_count += 1
@@ -373,8 +382,8 @@ def test_gain_mode(args):
                     break
                 
                 effective_steering = args.steering * steering_gain + args.steering_offset
-                print(f"\n[Step {step_count + 1}] Testing steering_gain={steering_gain:.3f} "
-                      f"(effective steering: {effective_steering:.3f})")
+                print("\n[Step {}] Testing steering_gain={:.3f} (effective steering: {:.3f})".format(
+                    step_count + 1, steering_gain, effective_steering))
                 
                 actuator.set_gains(args.throttle_gain, steering_gain, args.steering_offset)
                 
@@ -390,7 +399,7 @@ def test_gain_mode(args):
                     
                     should_log = args.log_interval > 0 and (frame_count % args.log_interval == 0)
                     if should_log:
-                        print(f"  [t={elapsed:5.2f}s] ", end="")
+                        print("  [t={:5.2f}s] ".format(elapsed), end="")
                     
                     actuator.apply(args.throttle, args.steering, log=should_log)
                     frame_count += 1
@@ -403,10 +412,10 @@ def test_gain_mode(args):
                 time.sleep(0.5)
                 step_count += 1
         
-        print("\n✓ Gain test completed!")
+        print("\n[OK] Gain test completed!")
     
     except KeyboardInterrupt:
-        print("\n\n⚠ Interrupted by user")
+        print("\n\n[WARNING] Interrupted by user")
     finally:
         actuator.stop()
 
@@ -488,16 +497,16 @@ Examples:
             test_circle_mode(args)
         elif args.mode == "step":
             if not (args.test_throttle or args.test_steering):
-                print("⚠ Error: Step mode requires --test-throttle or --test-steering")
+                print("[ERROR] Step mode requires --test-throttle or --test-steering")
                 sys.exit(1)
             test_step_mode(args)
         elif args.mode == "gain":
             if not (args.test_throttle_gain or args.test_steering_gain):
-                print("⚠ Error: Gain mode requires --test-throttle-gain or --test-steering-gain")
+                print("[ERROR] Gain mode requires --test-throttle-gain or --test-steering-gain")
                 sys.exit(1)
             test_gain_mode(args)
     except Exception as e:
-        print(f"\n✗ Error: {e}")
+        print("\n[ERROR] {}".format(e))
         import traceback
         traceback.print_exc()
     finally:
