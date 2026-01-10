@@ -39,7 +39,8 @@ class JetRacerActuator:
             self._car.steering_offset = steering_offset
             print("JetRacer initialized with throttle_gain={:.3f}, steering_gain={:.3f}, steering_offset={:.3f}".format(
                 throttle_gain, steering_gain, steering_offset))
-        except ImportError:
+        except Exception as e:
+            print("[ERROR] {}".format(e))
             print("[WARNING] 'jetracer' not found. Running in mock mode.")
             self._car = None
     
