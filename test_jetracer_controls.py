@@ -471,7 +471,7 @@ Examples:
     parser.add_argument("--throttle-gain", type=float, default=1, help="Throttle gain (multiplier)")
     parser.add_argument("--steering-gain", type=float, default=1, help="Steering gain (multiplier)")
     parser.add_argument("--steering-offset", type=float, default=0.0, help="Steering offset (added after gain)")
-    parser.add_argument("--throttle-boost", type=float, default=0.0, help="Throttle boost to overcome deadzone (added when throttle > 0)")
+    parser.add_argument("--throttle-boost", type=float, default=0.2, help="Throttle boost to overcome deadzone (added when throttle > 0)")
     parser.add_argument("--fps", type=float, default=20.0, help="Control loop FPS")
     parser.add_argument("--log-interval", type=int, default=20, help="Log every N frames (0 to disable)")
     
