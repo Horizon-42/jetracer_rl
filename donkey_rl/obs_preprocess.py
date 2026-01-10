@@ -95,7 +95,7 @@ class ObsPreprocess(gym.ObservationWrapper):
             self.last_transformed_observation = transformed.copy()
         else:
             transformed = raw
-            
+
         resized = cv2.resize(transformed, (self._width, self._height), interpolation=cv2.INTER_AREA)
         try:
             self.last_resized_observation = np.asarray(resized).copy()

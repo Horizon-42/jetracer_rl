@@ -113,6 +113,7 @@ def build_env_fn(
     obs_width: int,
     obs_height: int,
     domain_rand: bool,
+    perspective_transform: bool,
     aug_brightness: float,
     aug_contrast: float,
     aug_noise_std: float,
@@ -188,12 +189,15 @@ def build_env_fn(
             )
         else:
             raise ValueError(f"Unknown reward_type: {reward_type}")
+        
+        print(f"Wrapping env with ObsPreprocess: {obs_width}x{obs_height}, domain_rand={domain_rand}, perspective_transform={perspective_transform}")
 
         env = ObsPreprocess(
             env,
             width=obs_width,
             height=obs_height,
             domain_rand=domain_rand,
+            perspective_transform=perspective_transform,
             aug_brightness=aug_brightness,
             aug_contrast=aug_contrast,
             aug_noise_std=aug_noise_std,
