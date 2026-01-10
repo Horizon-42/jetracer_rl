@@ -29,6 +29,7 @@ class ObsPreprocess(gym.ObservationWrapper):
         *,
         width: int = 84,
         height: int = 84,
+        perspective_transform: bool = False,
         domain_rand: bool = False,
         aug_brightness: float = 0.25,
         aug_contrast: float = 0.25,
@@ -51,13 +52,25 @@ class ObsPreprocess(gym.ObservationWrapper):
         )
 
         self.last_raw_observation: Optional[np.ndarray] = None
+        self.last_transformed_observation: Optional[np.ndarray] = None
         self.last_resized_observation: Optional[np.ndarray] = None
+
 
         self._domain_rand = bool(domain_rand)
         self._aug_brightness = float(aug_brightness)
         self._aug_contrast = float(aug_contrast)
         self._aug_noise_std = float(aug_noise_std)
         self._aug_color_jitter = float(aug_color_jitter)
+
+        # perspective transform parameters (not used here)
+        self._perspective_transform = bool(perspective_transform)
+        self.perspective_src_pts = [(75, 154), (242, 154), (319, 238), (0, 238)]
+        self.perspective_dst_pts = [(10, 10), (310, 10), (310, 230), (10, 230)]
+        self.perspective_matrix = cv2.getPerspectiveTransform(
+            np.array(self.perspective_src_pts, dtype=np.float32),
+            np.array(self.perspective_dst_pts, dtype=np.float32),
+        )
+        self.perspective_image_size = (320, 240)
 
     def observation(self, observation: np.ndarray) -> np.ndarray:
         try:
@@ -68,8 +81,22 @@ class ObsPreprocess(gym.ObservationWrapper):
         except Exception:
             self.last_raw_observation = None
             raw = np.asarray(observation)
-
-        resized = cv2.resize(raw, (self._width, self._height), interpolation=cv2.INTER_AREA)
+        
+        # apply perspective transform 
+        if self._perspective_transform:
+            transformed = cv2.warpPerspective(
+                raw,
+                self.perspective_matrix,
+                self.perspective_image_size,
+                flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=(0, 0, 0),
+            )
+            self.last_transformed_observation = transformed.copy()
+        else:
+            transformed = raw
+            
+        resized = cv2.resize(transformed, (self._width, self._height), interpolation=cv2.INTER_AREA)
         try:
             self.last_resized_observation = np.asarray(resized).copy()
         except Exception:
@@ -113,6 +140,5 @@ class ObsPreprocess(gym.ObservationWrapper):
                 x = x + n
 
             x = np.clip(x, 0.0, 1.0)
-
         chw = x.transpose(2, 0, 1).astype(np.float32)
         return chw

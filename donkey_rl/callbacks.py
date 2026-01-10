@@ -146,9 +146,12 @@ class DebugObsDumpCallback:
                     # Prefer saving cached stages from the obs preprocess wrapper.
                     if hasattr(self.training_env, "envs") and self.training_env.envs:
                         env0 = self.training_env.envs[0]
+                        transformed = getattr(env0, "last_transformed_observation", None)
                         resized = getattr(env0, "last_resized_observation", None)
                     if resized is not None:
                         _save_rgb_u8(resized, "resized")
+                    if transformed is not None:
+                        _save_rgb_u8(transformed, "transformed")
 
                     # Also save the processed observation SB3 sees (CHW float32 [0,1]).
                     obs = self.locals.get("new_obs")

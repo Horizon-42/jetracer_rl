@@ -9,7 +9,7 @@ shimmy>=1.3.0
 # --- 必要的旧版 Gym ---
 # DonkeyCar 是基于旧 Gym 开发的，Shimmy 需要这个版本作为底层支持
 # 注意：setuptools 版本过高可能会导致 gym 0.21 安装失败，如果报错请降级 setuptools<60
-# gym==0.21.0 
+gym==0.21.0 
 
 # --- 图像处理 ---
 opencv-python==4.9.0.80
