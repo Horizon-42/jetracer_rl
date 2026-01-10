@@ -453,8 +453,8 @@ Examples:
     # Common parameters
     parser.add_argument("--throttle", type=float, default=0.3, help="Throttle value [0, 1]")
     parser.add_argument("--steering", type=float, default=0.5, help="Steering value [-1, 1], negative=left, positive=right")
-    parser.add_argument("--throttle-gain", type=float, default=0.4, help="Throttle gain (multiplier)")
-    parser.add_argument("--steering-gain", type=float, default=0.6, help="Steering gain (multiplier)")
+    parser.add_argument("--throttle-gain", type=float, default=1, help="Throttle gain (multiplier)")
+    parser.add_argument("--steering-gain", type=float, default=1, help="Steering gain (multiplier)")
     parser.add_argument("--steering-offset", type=float, default=0.0, help="Steering offset (added after gain)")
     parser.add_argument("--fps", type=float, default=20.0, help="Control loop FPS")
     parser.add_argument("--log-interval", type=int, default=20, help="Log every N frames (0 to disable)")
