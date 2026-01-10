@@ -20,13 +20,13 @@ import sys
 import signal
 import threading
 
-# Python 3.6 compatible type hints
-from typing import Optional  # Python 3.5+ (3.6 definitely has this)
+# Python 3.6 compatible - no type hints in function signatures for compatibility
 
 
 class JetRacerActuator:
     """Simple wrapper for JetRacer control"""
-    def __init__(self, throttle_gain: float = 1.0, steering_gain: float = 1.0, steering_offset: float = 0.0):
+    def __init__(self, throttle_gain=1.0, steering_gain=1.0, steering_offset=0.0):
+        # type: (float, float, float) -> None
         self._car = None
         self._throttle_gain = throttle_gain
         self._steering_gain = steering_gain
@@ -42,7 +42,8 @@ class JetRacerActuator:
             print("⚠ Warning: 'jetracer' not found. Running in mock mode.")
             self._car = None
     
-    def set_gains(self, throttle_gain: float, steering_gain: float, steering_offset: float = 0.0):
+    def set_gains(self, throttle_gain, steering_gain, steering_offset=0.0):
+        # type: (float, float, float) -> None
         """Update gain parameters"""
         self._throttle_gain = throttle_gain
         self._steering_gain = steering_gain
@@ -52,7 +53,8 @@ class JetRacerActuator:
             self._car.steering_gain = steering_gain
             self._car.steering_offset = steering_offset
     
-    def apply(self, throttle: float, steering: float, log: bool = False):
+    def apply(self, throttle, steering, log=False):
+        # type: (float, float, bool) -> None
         """Apply throttle and steering values"""
         if self._car:
             # Clip to valid ranges
@@ -77,7 +79,7 @@ class JetRacerActuator:
 
 # Global shutdown flag
 shutdown_flag = threading.Event()
-actuator = None  # type: Optional[JetRacerActuator]
+actuator = None  # Will be set to JetRacerActuator instance
 
 
 def signal_handler(signum, frame):
