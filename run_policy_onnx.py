@@ -1,4 +1,5 @@
 import argparse
+from ast import arg
 import time
 import sys
 import atexit
@@ -252,7 +253,7 @@ def main():
     )
     parser.add_argument("--fps", type=float, default=20.0, help="Target FPS for control loop")
     parser.add_argument("--throttle-gain", type=float, default=0.5, help="Throttle gain: output = gain * throttle (default: 1.0)")
-    parser.add_argument("--throttle-boost", type=float, default=0.4, help="Throttle boost: output = gain *(boost+throttle)")
+    parser.add_argument("--throttle-boost", type=float, default=0.5, help="Throttle boost: output = gain *(boost+throttle)")
     parser.add_argument("--throttle-scale", type=float, default=0.02, help="Throttle  scale: output = gain *(boost+scale*throttle)")
     
     parser.add_argument("--steering-gain", type=float, default=0.5, help="Steering gain: output = gain * steering + offset (default: 1.0)")
@@ -361,7 +362,7 @@ def main():
             # add throttle boost
             action_throttle = 0
             if action_input_throttle > 0:
-                action_throttle += 0.25
+                action_throttle += args.throttle_boost
                 action_throttle += action_input_throttle*args.throttle_scale
             
             # Log model output
