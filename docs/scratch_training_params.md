@@ -18,11 +18,20 @@ python3 train_jetracer_centerline.py \
   --reward-type base \
   --max-cte 3.0 \
   --total-timesteps 200000 \
-  --fast \
+  --perspective-transform \
   --sim-io-timeout-s 20 \
-  --port 12011 \
-  --run-name scratch_base_cte3
+  --port 9091 \
+  --run-name scratch_baseline
 ```
+
+## with perspective transform
+python3 train_jetracer_centerline.py \
+  --reward-type base \
+  --max-cte 3.0 \
+  --total-timesteps 200000 \
+  --sim-io-timeout-s 20 \
+  --port 10091 \
+  --run-name scratch_base_pers
 
 ---
 
@@ -35,11 +44,10 @@ python3 train_jetracer_centerline.py \
   --reward-type track_limit \
   --max-cte 3.0 \
   --offtrack-step-penalty 3.0 \
-  --total-timesteps 300000 \
-  --fast \
+  --total-timesteps 200000 \
   --sim-io-timeout-s 20 \
-  --port 12021 \
-  --run-name scratch_track_limit_cte3
+  --port 11091 \
+  --run-name scratch_track_limit
 ```
 
 ---
@@ -50,11 +58,10 @@ python3 train_jetracer_centerline.py \
 python3 train_jetracer_centerline.py \
   --reward-type deepracer \
   --max-cte 3.0 \
-  --total-timesteps 300000 \
-  --fast \
+  --total-timesteps 200000 \
   --sim-io-timeout-s 20 \
-  --port 12031 \
-  --run-name scratch_deepracer_cte3
+  --port 12091 \
+  --run-name scratch_deepracer
 ```
 
 ---
@@ -70,11 +77,11 @@ python3 train_jetracer_centerline.py \
   --v2-w-speed 1.0 \
   --v2-w-caution 0.35 \
   --v2-min-speed 0.25 \
-  --total-timesteps 400000 \
+  --total-timesteps 200000 \
   --fast \
   --sim-io-timeout-s 20 \
-  --port 12041 \
-  --run-name scratch_centerline_v2_cte3
+  --port 8091 \
+  --run-name scratch_centerline
 ```
 
 ---
@@ -92,10 +99,9 @@ python3 train_jetracer_centerline.py \
   --v3-w-stall 4.0 \
   --v3-alive-bonus 0.05 \
   --total-timesteps 400000 \
-  --fast \
   --sim-io-timeout-s 20 \
-  --port 12051 \
-  --run-name scratch_centerline_v3_cte3
+  --port 13051 \
+  --run-name scratch_centerline_v3
 ```
 
 ---
@@ -113,11 +119,10 @@ python3 train_jetracer_centerline.py \
   --v4-min-speed 0.28 \
   --v4-w-stall 4.0 \
   --v4-alive-bonus 0.04 \
-  --total-timesteps 400000 \
-  --fast \
+  --total-timesteps 200000 \
   --sim-io-timeout-s 20 \
   --port 12061 \
-  --run-name scratch_centerline_v4_cte3
+  --run-name scratch_centerline_v4
 ```
 
 ---

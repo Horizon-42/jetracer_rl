@@ -137,7 +137,8 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--perspective-transform",
-        action="store_true",
+        action="store_false",
+        default=True,
         help="Enable perspective transform preprocessing on observations (disabled by default).",
     )
 
