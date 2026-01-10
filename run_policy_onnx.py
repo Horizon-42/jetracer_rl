@@ -38,10 +38,106 @@ class JetRacerActuator:
             self._car.throttle = 0.0
 
 # --- 2. Image Preprocessing ---
-def preprocess_image(frame_bgr, model_width, model_height):
-    img = cv2.resize(frame_bgr, (model_width, model_height))
+def _get_perspective_transform_matrix(cam_width: int, cam_height: int):
+    """Get perspective transform matrix for bird's-eye view transformation.
+    
+    This matches the perspective transform used in training (donkey_rl.obs_preprocess.ObsPreprocess).
+    The source and destination points are designed for 320x240 images.
+    Source points are scaled based on actual camera dimensions, but output size is fixed to (320, 240)
+    to match training configuration.
+    
+    Args:
+        cam_width: Camera image width
+        cam_height: Camera image height
+    
+    Returns:
+        Tuple of (perspective_transform_matrix, output_size)
+        - perspective_transform_matrix: 3x3 numpy array
+        - output_size: Fixed tuple (320, 240) to match training
+    """
+    # Original design size for 320x240 image (as in ObsPreprocess)
+    design_width, design_height = 320, 240
+    
+    # Destination points (fixed output size, matches training)
+    # These define where source points map to in the transformed image
+    dst_pts = np.array([
+        [10, 10],    # Top-left
+        [310, 10],   # Top-right
+        [310, 230],  # Bottom-right
+        [10, 230]    # Bottom-left
+    ], dtype=np.float32)
+    
+    # Source points define the region of interest in the original image
+    # These are designed for 320x240, so scale if camera size differs
+    src_pts = np.array([
+        [75, 154],   # Top-left
+        [242, 154],  # Top-right
+        [319, 238],  # Bottom-right
+        [0, 238]     # Bottom-left
+    ], dtype=np.float32)
+    
+    # Scale source points if camera dimensions differ from design size
+    if cam_width != design_width or cam_height != design_height:
+        scale_x = cam_width / design_width
+        scale_y = cam_height / design_height
+        src_pts = src_pts * np.array([scale_x, scale_y], dtype=np.float32)
+    
+    # Compute perspective transform matrix
+    matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
+    
+    # Output size is always (320, 240) to match training configuration
+    return matrix, (design_width, design_height)
+
+
+def preprocess_image(frame_bgr, model_width, model_height, perspective_transform=False, perspective_matrix=None, perspective_size=None):
+    """
+    Preprocess camera frame for model inference.
+    
+    This matches the preprocessing pipeline used in training (donkey_rl.obs_preprocess.ObsPreprocess):
+    1. Apply perspective transformation (if enabled) for bird's-eye view
+    2. Resize to target dimensions
+    3. Convert BGR to RGB
+    4. Convert HWC to CHW format (channels-first)
+    5. Normalize to [0, 1] range
+    
+    Args:
+        frame_bgr: Input frame in BGR format (HWC uint8)
+        model_width: Target width for model input
+        model_height: Target height for model input
+        perspective_transform: Whether to apply perspective transformation
+        perspective_matrix: Precomputed perspective transform matrix (3x3)
+        perspective_size: Output size for perspective transform (width, height)
+    
+    Returns:
+        Preprocessed image ready for model inference (1CHW float32 in [0, 1])
+    """
+    # Step 1: Apply perspective transformation (if enabled)
+    if perspective_transform and perspective_matrix is not None and perspective_size is not None:
+        # Ensure frame is in correct format for warpPerspective (uint8)
+        if frame_bgr.dtype != np.uint8:
+            frame_bgr = np.clip(frame_bgr, 0, 255).astype(np.uint8)
+        
+        transformed = cv2.warpPerspective(
+            frame_bgr,
+            perspective_matrix,
+            perspective_size,
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=(0, 0, 0),  # Black padding
+        )
+    else:
+        transformed = frame_bgr
+    
+    # Step 2: Resize to target dimensions (using INTER_AREA for downsampling)
+    img = cv2.resize(transformed, (model_width, model_height), interpolation=cv2.INTER_AREA)
+    
+    # Step 3: Convert BGR to RGB
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    
+    # Step 4: Convert HWC to CHW format (channels-first)
     img = img.transpose((2, 0, 1))
+    
+    # Step 5: Normalize to [0, 1] range and add batch dimension
     img = np.ascontiguousarray(img, dtype=np.float32) / 255.0
     return img[np.newaxis, ...]
 
@@ -88,9 +184,15 @@ def main():
     parser.add_argument("--cam-idx", type=int, default=0)
     parser.add_argument("--cam-width", type=int, default=320)
     parser.add_argument("--cam-height", type=int, default=240)
-    parser.add_argument("--obs-width", type=int, default=84)
-    parser.add_argument("--obs-height", type=int, default=84)
-    parser.add_argument("--fps", type=float, default=20.0)
+    parser.add_argument("--obs-width", type=int, default=84, help="Model input width (should match training)")
+    parser.add_argument("--obs-height", type=int, default=84, help="Model input height (should match training)")
+    parser.add_argument(
+        "--perspective-transform",
+        action="store_true",
+        default=False,
+        help="Enable perspective transformation (bird's-eye view) preprocessing (should match training)",
+    )
+    parser.add_argument("--fps", type=float, default=20.0, help="Target FPS for control loop")
     parser.add_argument("--throttle-gain", type=float, default=1.0, help="Throttle gain: output = gain * throttle (default: 1.0)")
     parser.add_argument("--steering-gain", type=float, default=1.0, help="Steering gain: output = gain * steering + offset (default: 1.0)")
     parser.add_argument("--steering-offset", type=float, default=0.0, help="Steering offset to correct mechanical bias (default: 0.0)")
@@ -104,6 +206,17 @@ def main():
     except Exception as e:
         print(f"Error loading ONNX: {e}")
         return
+
+    # Initialize perspective transform (if enabled)
+    perspective_matrix = None
+    perspective_size = None
+    if args.perspective_transform:
+        perspective_matrix, perspective_size = _get_perspective_transform_matrix(
+            args.cam_width, args.cam_height
+        )
+        print(f"Perspective transform enabled: matrix shape={perspective_matrix.shape}, output size={perspective_size}")
+    else:
+        print("Perspective transform disabled")
 
     # Initialize car actuator
     actuator_resource = JetRacerActuator(
@@ -145,8 +258,15 @@ def main():
                 print("No frame")
                 continue
 
-            # Inference
-            obs = preprocess_image(frame, args.obs_width, args.obs_height)
+            # Preprocess and inference
+            obs = preprocess_image(
+                frame,
+                args.obs_width,
+                args.obs_height,
+                perspective_transform=args.perspective_transform,
+                perspective_matrix=perspective_matrix,
+                perspective_size=perspective_size,
+            )
             action = sess.run(None, {input_name: obs})[0].flatten()
             
             # Execute action
