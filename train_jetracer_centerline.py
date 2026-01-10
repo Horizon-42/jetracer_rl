@@ -122,10 +122,10 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="Disable photometric augmentation (brightness/contrast/noise/color) on sim observations (enabled by default).",
     )
-    parser.add_argument("--aug-brightness", type=float, default=0.25, help="Brightness jitter amplitude (in [0,1]).")
-    parser.add_argument("--aug-contrast", type=float, default=0.25, help="Contrast jitter amplitude (multiplier around 1.0).")
-    parser.add_argument("--aug-noise-std", type=float, default=0.02, help="Gaussian noise std (in [0,1]).")
-    parser.add_argument("--aug-color-jitter", type=float, default=0.2, help="Color jitter amplitude for HSV adjustments (hue/saturation/value).")
+    parser.add_argument("--aug-brightness", type=float, default=0.4, help="Brightness jitter amplitude (in [0,1]).")
+    parser.add_argument("--aug-contrast", type=float, default=0.4, help="Contrast jitter amplitude (multiplier around 1.0).")
+    parser.add_argument("--aug-noise-std", type=float, default=0.05, help="Gaussian noise std (in [0,1]).")
+    parser.add_argument("--aug-color-jitter", type=float, default=0.35, help="Color jitter amplitude for HSV adjustments (hue/saturation/value).")
 
     parser.add_argument(
         "--random-friction",
@@ -133,14 +133,22 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="Disable per-episode random friction (enabled by default, implemented as throttle scaling).",
     )
-    parser.add_argument("--friction-min", type=float, default=0.6, help="Min throttle scale when random friction enabled.")
-    parser.add_argument("--friction-max", type=float, default=1.0, help="Max throttle scale when random friction enabled.")
+    parser.add_argument("--friction-min", type=float, default=0.4, help="Min throttle scale when random friction enabled.")
+    parser.add_argument("--friction-max", type=float, default=1.2, help="Max throttle scale when random friction enabled.")
 
     parser.add_argument(
         "--perspective-transform",
         action="store_false",
         default=True,
-        help="Enable perspective transform preprocessing on observations (disabled by default).",
+        help="Enable perspective transform preprocessing on observations (disabled by default). Deprecated: use --obs-mode instead.",
+    )
+    parser.add_argument(
+        "--obs-mode",
+        type=str,
+        default="mix",
+        choices=["auto", "raw", "perspective", "mix"],
+        help="Observation mode: 'auto' (use --perspective-transform flag), 'raw' (original image only), "
+             "'perspective' (bird's-eye view only), 'mix' (stack raw+perspective vertically, compress to 84x84).",
     )
 
     # Loading existing policy for continued training
@@ -431,13 +439,14 @@ def main() -> None:
                 obs_height=args.obs_height,
                 domain_rand=bool(getattr(args, "domain_rand", False)),
                 perspective_transform=bool(getattr(args, "perspective_transform", False)),
-                aug_brightness=float(getattr(args, "aug_brightness", 0.25)),
-                aug_contrast=float(getattr(args, "aug_contrast", 0.25)),
-                aug_noise_std=float(getattr(args, "aug_noise_std", 0.02)),
-                aug_color_jitter=float(getattr(args, "aug_color_jitter", 0.2)),
+                obs_mode=str(getattr(args, "obs_mode", "auto")),
+                aug_brightness=float(getattr(args, "aug_brightness", 0.4)),
+                aug_contrast=float(getattr(args, "aug_contrast", 0.4)),
+                aug_noise_std=float(getattr(args, "aug_noise_std", 0.05)),
+                aug_color_jitter=float(getattr(args, "aug_color_jitter", 0.35)),
                 random_friction=bool(getattr(args, "random_friction", False)),
-                friction_min=float(getattr(args, "friction_min", 0.6)),
-                friction_max=float(getattr(args, "friction_max", 1.0)),
+                friction_min=float(getattr(args, "friction_min", 0.4)),
+                friction_max=float(getattr(args, "friction_max", 1.2)),
                 car_name=str(getattr(args, "run_id", "JetRacerAgent")),
             )
         ]
@@ -538,10 +547,11 @@ def main() -> None:
             # Keep evaluation deterministic by default.
             domain_rand=False,
             perspective_transform=bool(getattr(args, "perspective_transform", False)),
-            aug_brightness=float(getattr(args, "aug_brightness", 0.25)),
-            aug_contrast=float(getattr(args, "aug_contrast", 0.25)),
-            aug_noise_std=float(getattr(args, "aug_noise_std", 0.02)),
-            aug_color_jitter=float(getattr(args, "aug_color_jitter", 0.2)),
+            obs_mode=str(getattr(args, "obs_mode", "auto")),
+            aug_brightness=float(getattr(args, "aug_brightness", 0.4)),
+            aug_contrast=float(getattr(args, "aug_contrast", 0.4)),
+            aug_noise_std=float(getattr(args, "aug_noise_std", 0.05)),
+            aug_color_jitter=float(getattr(args, "aug_color_jitter", 0.35)),
             random_friction=False,
             friction_min=1.0,
             friction_max=1.0,

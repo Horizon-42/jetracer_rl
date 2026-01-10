@@ -159,6 +159,11 @@ class ObsPreprocess(gym.ObservationWrapper):
     4. Applies domain randomization (if enabled) for sim-to-real transfer
     5. Converts to CHW format (channels-first) as float32 in [0, 1]
 
+    Observation modes (obs_mode):
+    - "raw": Use only the raw camera image (default when perspective_transform=False)
+    - "perspective": Use only the perspective-transformed image
+    - "mix": Stack raw + perspective images vertically, then resize to target dimensions
+
     Debug caches (for DebugObsDumpCallback):
     - last_raw_observation: Raw simulator frame (HWC uint8)
     - last_resized_observation: Resized frame (HWC uint8)
@@ -178,6 +183,7 @@ class ObsPreprocess(gym.ObservationWrapper):
         width: int = 84,
         height: int = 84,
         perspective_transform: bool = False,
+        obs_mode: str = "auto",
         domain_rand: bool = False,
         aug_brightness: float = 0.25,
         aug_contrast: float = 0.25,
@@ -191,7 +197,12 @@ class ObsPreprocess(gym.ObservationWrapper):
             width: Target width for resized observations (default: 84).
             height: Target height for resized observations (default: 84).
             perspective_transform: If True, apply perspective transformation to
-                                   get bird's-eye view. Default: False.
+                                   get bird's-eye view. Default: False. (Deprecated, use obs_mode)
+            obs_mode: Observation mode. Options:
+                - "auto": Use perspective_transform flag for backward compatibility
+                - "raw": Use only raw camera image
+                - "perspective": Use only perspective-transformed image
+                - "mix": Stack raw + perspective vertically, resize to target dimensions
             domain_rand: If True, apply domain randomization augmentations.
                          Default: False.
             aug_brightness: Brightness augmentation range (applied if domain_rand=True).
@@ -205,6 +216,7 @@ class ObsPreprocess(gym.ObservationWrapper):
 
         Raises:
             AssertionError: If input observation is not RGB (3 channels).
+            ValueError: If obs_mode is not recognized.
         """
         super().__init__(env)
 
@@ -214,6 +226,16 @@ class ObsPreprocess(gym.ObservationWrapper):
         # Validate input observation space
         _h, _w, c = self.observation_space.shape
         assert c == 3, f"Expected RGB observation, got shape {self.observation_space.shape}"
+
+        # Determine obs_mode
+        obs_mode = str(obs_mode).lower().strip()
+        if obs_mode == "auto":
+            # Backward compatibility: use perspective_transform flag
+            self._obs_mode = "perspective" if perspective_transform else "raw"
+        elif obs_mode in ("raw", "perspective", "mix"):
+            self._obs_mode = obs_mode
+        else:
+            raise ValueError(f"Unknown obs_mode: {obs_mode}. Supported modes: raw, perspective, mix, auto")
 
         # Update observation space to CHW format (channels-first)
         self.observation_space = gym.spaces.Box(
@@ -238,7 +260,7 @@ class ObsPreprocess(gym.ObservationWrapper):
         # Perspective transformation settings
         # Source points define the region of interest in the original image
         # Destination points define where they should map to in the transformed image
-        self._perspective_transform = bool(perspective_transform)
+        self._perspective_transform = self._obs_mode in ("perspective", "mix")
         self.perspective_src_pts = [(75, 154), (242, 154), (319, 238), (0, 238)]
         self.perspective_dst_pts = [(10, 10), (310, 10), (310, 230), (10, 230)]
         self.perspective_matrix = cv2.getPerspectiveTransform(
@@ -253,10 +275,11 @@ class ObsPreprocess(gym.ObservationWrapper):
         This method is called automatically by gym.Wrapper on each step.
         It applies all preprocessing transformations in sequence:
         1. Cache raw observation
-        2. Apply perspective transform (if enabled)
-        3. Resize to target dimensions
-        4. Apply domain randomization (if enabled)
-        5. Convert to CHW float32 format
+        2. Apply perspective transform (if enabled by obs_mode)
+        3. Combine images based on obs_mode (raw, perspective, or mix)
+        4. Resize to target dimensions
+        5. Apply domain randomization (if enabled)
+        6. Convert to CHW float32 format
 
         Args:
             observation: Raw observation from the environment (HWC uint8).
@@ -274,7 +297,7 @@ class ObsPreprocess(gym.ObservationWrapper):
             self.last_raw_observation = None
             raw = np.asarray(observation)
 
-        # Step 2: Apply perspective transformation (if enabled)
+        # Step 2: Apply perspective transformation (if needed)
         # This transforms the camera view to a bird's-eye view, which can
         # help with lane detection and path following tasks
         if self._perspective_transform:
@@ -288,12 +311,31 @@ class ObsPreprocess(gym.ObservationWrapper):
             )
             self.last_transformed_observation = transformed.copy()
         else:
-            transformed = raw
+            transformed = None
 
-        # Step 3: Resize to target dimensions
+        # Step 3: Combine images based on obs_mode
+        if self._obs_mode == "raw":
+            # Use only raw image
+            to_resize = raw
+        elif self._obs_mode == "perspective":
+            # Use only perspective-transformed image
+            to_resize = transformed
+        elif self._obs_mode == "mix":
+            # Stack raw + perspective vertically, then resize to target dimensions
+            # This gives the network both the original view and bird's-eye view
+            # Both images should have the same width for proper stacking
+            raw_resized_w = cv2.resize(raw, (self.perspective_image_size[0], self.perspective_image_size[1]), 
+                                        interpolation=cv2.INTER_AREA)
+            # Stack vertically: [raw on top, perspective on bottom]
+            to_resize = np.vstack([raw_resized_w, transformed])
+        else:
+            # Fallback to raw
+            to_resize = raw
+
+        # Step 4: Resize to target dimensions
         # Using INTER_AREA interpolation which is best for downsampling
         resized = cv2.resize(
-            transformed, (self._width, self._height), interpolation=cv2.INTER_AREA
+            to_resize, (self._width, self._height), interpolation=cv2.INTER_AREA
         )
 
         # Cache resized observation for debugging
@@ -302,10 +344,10 @@ class ObsPreprocess(gym.ObservationWrapper):
         except Exception:
             self.last_resized_observation = None
 
-        # Step 4: Convert to float32 in [0, 1] range
+        # Step 5: Convert to float32 in [0, 1] range
         processed = resized.astype(np.float32) / 255.0
 
-        # Step 5: Apply domain randomization (if enabled)
+        # Step 6: Apply domain randomization (if enabled)
         # This should be done in float32 space for numerical precision
         if self._domain_rand:
             processed = _apply_domain_randomization(
@@ -316,7 +358,7 @@ class ObsPreprocess(gym.ObservationWrapper):
                 color_jitter_strength=self._aug_color_jitter,
             )
 
-        # Step 6: Convert from HWC to CHW format (channels-first)
+        # Step 7: Convert from HWC to CHW format (channels-first)
         # This is the format expected by PyTorch and most neural network frameworks
         chw = processed.transpose(2, 0, 1).astype(np.float32)
 

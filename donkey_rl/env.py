@@ -266,6 +266,7 @@ def build_env_fn(
     obs_height: int,
     domain_rand: bool,
     perspective_transform: bool,
+    obs_mode: str = "auto",
     aug_brightness: float,
     aug_contrast: float,
     aug_noise_std: float,
@@ -315,7 +316,8 @@ def build_env_fn(
         obs_width: Output observation width in pixels.
         obs_height: Output observation height in pixels.
         domain_rand: If True, apply domain randomization (brightness, contrast, noise, color jitter).
-        perspective_transform: If True, apply perspective transformation to camera view.
+        perspective_transform: If True, apply perspective transformation to camera view (deprecated, use obs_mode).
+        obs_mode: Observation mode ('auto', 'raw', 'perspective', 'mix'). 'mix' stacks raw+perspective vertically.
         aug_brightness: Brightness augmentation range (applied if domain_rand=True).
         aug_contrast: Contrast augmentation range (applied if domain_rand=True).
         aug_noise_std: Gaussian noise standard deviation (applied if domain_rand=True).
@@ -386,7 +388,7 @@ def build_env_fn(
         # Step 5: Apply observation preprocessing wrapper
         # This handles resizing, perspective transform, and domain randomization
         print(f"Wrapping env with ObsPreprocess: {obs_width}x{obs_height}, "
-              f"domain_rand={domain_rand}, perspective_transform={perspective_transform}")
+              f"domain_rand={domain_rand}, obs_mode={obs_mode}")
 
         env = ObsPreprocess(
             env,
@@ -394,6 +396,7 @@ def build_env_fn(
             height=obs_height,
             domain_rand=domain_rand,
             perspective_transform=perspective_transform,
+            obs_mode=obs_mode,
             aug_brightness=aug_brightness,
             aug_contrast=aug_contrast,
             aug_noise_std=aug_noise_std,
