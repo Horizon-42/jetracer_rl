@@ -229,7 +229,7 @@ def parse_args() -> argparse.Namespace:
         "--eval-port",
         type=int,
         default=0,
-        help="Eval simulator port. Default: train port + 1.",
+        help="Eval simulator port. Default: train port + 6.",
     )
     parser.add_argument("--eval-freq", type=int, default=5_000, help="EvalCallback eval frequency (in timesteps).")
     parser.add_argument("--n-eval-episodes", type=int, default=5)
@@ -491,61 +491,52 @@ def main() -> None:
 
     best_zip_in_log = os.path.join(args.log_dir, "best", "best_model.zip")
     eval_callback = None
-    eval_env = None
 
     if args.eval:
-        eval_env = DummyVecEnv(
-            [
-                build_env_fn(
-                    env_id=args.env_id,
-                    host=args.eval_host,
-                    port=args.port+6,
-                    exe_path=args.exe_path,
-                    fast_mode=args.fast,
-                    reward_type=args.reward_type,
-                    max_cte=args.max_cte,
-                    offtrack_step_penalty=args.offtrack_step_penalty,
-                    v2_w_speed=float(getattr(args, "v2_w_speed", 0.8)),
-                    v2_w_caution=float(getattr(args, "v2_w_caution", 0.6)),
-                    v2_min_speed=float(getattr(args, "v2_min_speed", 0.2)),
-                    v3_w_speed=float(getattr(args, "v3_w_speed", 1.2)),
-                    v3_min_speed=float(getattr(args, "v3_min_speed", 0.35)),
-                    v3_w_stall=float(getattr(args, "v3_w_stall", 2.0)),
-                    v3_alive_bonus=float(getattr(args, "v3_alive_bonus", 0.02)),
-                    v4_w_speed=float(getattr(args, "v4_w_speed", 1.0)),
-                    v4_min_speed=float(getattr(args, "v4_min_speed", 0.25)),
-                    v4_w_stall=float(getattr(args, "v4_w_stall", 3.0)),
-                    v4_w_smooth=float(getattr(args, "v4_w_smooth", 0.25)),
-                    v4_alive_bonus=float(getattr(args, "v4_alive_bonus", 0.03)),
-                    sim_io_timeout_s=float(getattr(args, "sim_io_timeout_s", 30.0)),
-                    obs_width=args.obs_width,
-                    obs_height=args.obs_height,
-                    # Keep evaluation deterministic by default.
-                    domain_rand=False,
-                    perspective_transform=bool(getattr(args, "perspective_transform", False)),
-                    aug_brightness=float(getattr(args, "aug_brightness", 0.25)),
-                    aug_contrast=float(getattr(args, "aug_contrast", 0.25)),
-                    aug_noise_std=float(getattr(args, "aug_noise_std", 0.02)),
-                    aug_color_jitter=float(getattr(args, "aug_color_jitter", 0.2)),
-                    random_friction=False,
-                    friction_min=1.0,
-                    friction_max=1.0,
-                    car_name=str(getattr(args, "run_id", "JetRacerAgent")),
-                )
-            ]
+        # Create eval_env_fn that will be called only when evaluation is needed
+        # If eval_port is 0, use train port + 6 (original behavior for backward compatibility)
+        eval_port = (args.port + 6) if args.eval_port == 0 else args.eval_port
+        eval_env_fn = build_env_fn(
+            env_id=args.env_id,
+            host=args.eval_host,
+            port=eval_port,
+            exe_path=args.exe_path,
+            fast_mode=args.fast,
+            reward_type=args.reward_type,
+            max_cte=args.max_cte,
+            offtrack_step_penalty=args.offtrack_step_penalty,
+            v2_w_speed=float(getattr(args, "v2_w_speed", 0.8)),
+            v2_w_caution=float(getattr(args, "v2_w_caution", 0.6)),
+            v2_min_speed=float(getattr(args, "v2_min_speed", 0.2)),
+            v3_w_speed=float(getattr(args, "v3_w_speed", 1.2)),
+            v3_min_speed=float(getattr(args, "v3_min_speed", 0.35)),
+            v3_w_stall=float(getattr(args, "v3_w_stall", 2.0)),
+            v3_alive_bonus=float(getattr(args, "v3_alive_bonus", 0.02)),
+            v4_w_speed=float(getattr(args, "v4_w_speed", 1.0)),
+            v4_min_speed=float(getattr(args, "v4_min_speed", 0.25)),
+            v4_w_stall=float(getattr(args, "v4_w_stall", 3.0)),
+            v4_w_smooth=float(getattr(args, "v4_w_smooth", 0.25)),
+            v4_alive_bonus=float(getattr(args, "v4_alive_bonus", 0.03)),
+            sim_io_timeout_s=float(getattr(args, "sim_io_timeout_s", 30.0)),
+            obs_width=args.obs_width,
+            obs_height=args.obs_height,
+            # Keep evaluation deterministic by default.
+            domain_rand=False,
+            perspective_transform=bool(getattr(args, "perspective_transform", False)),
+            aug_brightness=float(getattr(args, "aug_brightness", 0.25)),
+            aug_contrast=float(getattr(args, "aug_contrast", 0.25)),
+            aug_noise_std=float(getattr(args, "aug_noise_std", 0.02)),
+            aug_color_jitter=float(getattr(args, "aug_color_jitter", 0.2)),
+            random_friction=False,
+            friction_min=1.0,
+            friction_max=1.0,
+            car_name=str(getattr(args, "run_id", "JetRacerAgent")),
         )
-        eval_env = VecMonitor(eval_env, filename=os.path.join(args.log_dir, "eval_monitor.csv"))
-        # eval_callback = EvalCallback(
-        #     eval_env,
-        #     best_model_save_path=os.path.join(args.log_dir, "best"),
-        #     log_path=os.path.join(args.log_dir, "eval"),
-        #     eval_freq=int(args.eval_freq),
-        #     n_eval_episodes=int(args.n_eval_episodes),
-        #     deterministic=True,
-        #     render=False,
-        # )
+        
+        # Create callback with lazy env initialization
+        # The eval_env will only be created when evaluation is triggered
         eval_callback = EphemeralEvalCallback(
-            eval_env=eval_env,
+            eval_env_fn=eval_env_fn,
             best_model_save_path=os.path.join(args.log_dir, "best"),
             log_path=os.path.join(args.log_dir, "eval"),
             eval_freq=int(args.eval_freq),
@@ -553,7 +544,7 @@ def main() -> None:
             deterministic=True,
             render=False,
         )
-        callbacks.append(eval_callback)
+        callbacks.append(eval_callback.sb3_callback())
     else:
         callbacks.append(BestModelOnEpisodeRewardCallback(args.best_model_path).sb3_callback())
 
@@ -565,19 +556,8 @@ def main() -> None:
         print("Interrupted. Saving last model...")
         model.save(args.save_path)
 
-        if args.eval and eval_callback is not None and eval_env is not None:
-            try:
-                mean_reward, _std = evaluate_policy(
-                    model,
-                    eval_env,
-                    n_eval_episodes=int(max(1, args.n_eval_episodes)),
-                    deterministic=True,
-                )
-                if float(mean_reward) > float(eval_callback.best_mean_reward):
-                    os.makedirs(os.path.dirname(best_zip_in_log), exist_ok=True)
-                    model.save(best_zip_in_log)
-            except Exception:
-                pass
+        # Note: eval_callback manages its own eval_env lifecycle, so we don't need to
+        # manually evaluate here. The callback will have already run evaluations during training.
 
         _sync_best_model(best_zip_in_log, args.best_model_path)
         raise
@@ -590,19 +570,8 @@ def main() -> None:
         except Exception:
             pass
 
-        if args.eval and eval_callback is not None and eval_env is not None:
-            try:
-                mean_reward, _std = evaluate_policy(
-                    model,
-                    eval_env,
-                    n_eval_episodes=int(max(1, args.n_eval_episodes)),
-                    deterministic=True,
-                )
-                if float(mean_reward) > float(eval_callback.best_mean_reward):
-                    os.makedirs(os.path.dirname(best_zip_in_log), exist_ok=True)
-                    model.save(best_zip_in_log)
-            except Exception:
-                pass
+        # Note: eval_callback manages its own eval_env lifecycle, so we don't need to
+        # manually evaluate here. The callback will have already run evaluations during training.
 
         if os.path.exists(best_zip_in_log):
             _sync_best_model(best_zip_in_log, args.best_model_path)
@@ -611,8 +580,8 @@ def main() -> None:
         if os.path.exists(best_zip_in_log):
             _sync_best_model(best_zip_in_log, args.best_model_path)
 
-        if eval_env is not None:
-            eval_env.close()
+        # eval_env is managed by eval_callback and will be closed automatically
+        # when the callback is garbage collected. No need to close it here.
         train_env.close()
 
     model.save(args.save_path)
