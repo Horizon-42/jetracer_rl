@@ -27,11 +27,17 @@ class JetRacerActuator:
         except ImportError:
             print("Warning: 'jetracer' not found. Mock mode.")
 
-    def apply(self, throttle: float, steering: float):
+    def apply(self, throttle: float, steering: float, log: bool = False):
         if self._car:
             # Clip to valid range [-1.0, 1.0], gain/offset applied by NvidiaRacecar
-            self._car.throttle = float(np.clip(throttle, -1.0, 1.0))
-            self._car.steering = float(np.clip(steering, -1.0, 1.0))
+            clipped_throttle = float(np.clip(throttle, -1.0, 1.0))
+            clipped_steering = float(np.clip(steering, -1.0, 1.0))
+            self._car.throttle = clipped_throttle
+            self._car.steering = clipped_steering
+            if log:
+                print(f"[Actuator] Applied: throttle={clipped_throttle:.4f}, steering={clipped_steering:.4f} (raw: throttle={throttle:.4f}, steering={steering:.4f})")
+        elif log:
+            print(f"[Actuator] Mock mode - Would apply: throttle={throttle:.4f}, steering={steering:.4f}")
 
     def stop(self):
         if self._car:
@@ -196,6 +202,7 @@ def main():
     parser.add_argument("--throttle-gain", type=float, default=0.5, help="Throttle gain: output = gain * throttle (default: 1.0)")
     parser.add_argument("--steering-gain", type=float, default=0.5, help="Steering gain: output = gain * steering + offset (default: 1.0)")
     parser.add_argument("--steering-offset", type=float, default=0.0, help="Steering offset to correct mechanical bias (default: 0.0)")
+    parser.add_argument("--log-interval", type=int, default=10, help="Print log every N frames (default: 10, 0 to disable)")
     args = parser.parse_args()
 
     # Initialize model
@@ -203,6 +210,12 @@ def main():
     try:
         sess = ort.InferenceSession(args.model, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
         input_name = sess.get_inputs()[0].name
+        input_shape = sess.get_inputs()[0].shape
+        output_name = sess.get_outputs()[0].name if len(sess.get_outputs()) > 0 else "unknown"
+        output_shape = sess.get_outputs()[0].shape if len(sess.get_outputs()) > 0 else "unknown"
+        print(f"Model loaded successfully:")
+        print(f"  - Input: name={input_name}, shape={input_shape}, dtype={sess.get_inputs()[0].type}")
+        print(f"  - Output: name={output_name}, shape={output_shape}, dtype={sess.get_outputs()[0].type}")
     except Exception as e:
         print(f"Error loading ONNX: {e}")
         return
@@ -247,7 +260,9 @@ def main():
 
     dt = 1.0 / args.fps
     print("Running... Ctrl+C to stop.")
+    print(f"Log interval: {args.log_interval} frames (0 = disabled)")
 
+    frame_count = 0
     try:
         while True:
             t0 = time.time()
@@ -267,10 +282,18 @@ def main():
                 perspective_matrix=perspective_matrix,
                 perspective_size=perspective_size,
             )
-            action = sess.run(None, {input_name: obs})[0].flatten()
+            action_raw = sess.run(None, {input_name: obs})[0].flatten()
+            
+            # Log model output
+            should_log = args.log_interval > 0 and (frame_count % args.log_interval == 0)
+            if should_log:
+                print(f"[Frame {frame_count}] Model raw output: action={action_raw}, shape={action_raw.shape}, dtype={action_raw.dtype}")
+                print(f"  - Action values: throttle={action_raw[0]:.6f}, steering={action_raw[1]:.6f}")
             
             # Execute action
-            actuator_resource.apply(action[0], action[1])
+            actuator_resource.apply(action_raw[0], action_raw[1], log=should_log)
+            
+            frame_count += 1
 
             # Maintain target FPS
             t_process = time.time() - t0
