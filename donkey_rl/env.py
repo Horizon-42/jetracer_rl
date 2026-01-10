@@ -52,7 +52,7 @@ def make_donkey_env(
         "body_style": "donkey",
         "body_rgb": (255, 165, 0),
         "car_name": str(car_name),
-        "font_size": 100,
+        "font_size": 50,
         # Keep env observation_space consistent with the images requested from the sim.
         "cam_resolution": (240, 320, 3),
         "cam_config":{

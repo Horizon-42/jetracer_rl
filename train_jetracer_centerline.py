@@ -231,7 +231,14 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Eval simulator port. Default: train port + 6.",
     )
-    parser.add_argument("--eval-freq", type=int, default=5_000, help="EvalCallback eval frequency (in timesteps).")
+    parser.add_argument("--eval-freq", type=int, default=20_000, help="EvalCallback eval frequency. Unit depends on --eval-freq-type.")
+    parser.add_argument(
+        "--eval-freq-type",
+        type=str,
+        default="timesteps",
+        choices=["timesteps", "episodes"],
+        help="Unit for --eval-freq: 'timesteps' (default, recommended) or 'episodes'.",
+    )
     parser.add_argument("--n-eval-episodes", type=int, default=5)
 
     args = parser.parse_args()
@@ -530,7 +537,7 @@ def main() -> None:
             random_friction=False,
             friction_min=1.0,
             friction_max=1.0,
-            car_name=str(getattr(args, "run_id", "JetRacerAgent")),
+            car_name=str(getattr(args, "run_id", "JetRacerAgent")) + "_eval",
         )
         
         # Create callback with lazy env initialization
@@ -540,6 +547,7 @@ def main() -> None:
             best_model_save_path=os.path.join(args.log_dir, "best"),
             log_path=os.path.join(args.log_dir, "eval"),
             eval_freq=int(args.eval_freq),
+            eval_freq_type=str(getattr(args, "eval_freq_type", "timesteps")),
             n_eval_episodes=int(args.n_eval_episodes),
             deterministic=True,
             render=False,

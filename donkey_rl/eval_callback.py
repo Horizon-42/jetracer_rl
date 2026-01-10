@@ -26,7 +26,8 @@ class EphemeralEvalCallback:
         eval_env: Optional[gym.Env] = None,
         best_model_save_path: str,
         log_path: Optional[str] = None,
-        eval_freq: int = 10000,
+            eval_freq: int = 10000,
+            eval_freq_type: str = "timesteps",  # "timesteps" or "episodes"
         n_eval_episodes: int = 5,
         deterministic: bool = True,
         render: bool = False,
@@ -39,7 +40,9 @@ class EphemeralEvalCallback:
                       If provided, eval_env_fn is ignored and env won't be closed.
             best_model_save_path: Path where the best model will be saved.
             log_path: Path to save evaluation logs.
-            eval_freq: Evaluate the model every `eval_freq` timesteps.
+            eval_freq: Evaluation frequency. If eval_freq_type="timesteps", evaluate every N timesteps.
+                       If eval_freq_type="episodes", evaluate every N episodes. Default: 10000.
+            eval_freq_type: Type of eval_freq - "timesteps" or "episodes". Default: "timesteps".
             n_eval_episodes: Number of episodes to run during evaluation.
             deterministic: Whether to use deterministic actions during evaluation.
             render: Whether to render the evaluation.
@@ -65,6 +68,9 @@ class EphemeralEvalCallback:
         self._best_model_save_path = best_model_save_path
         self._log_path = log_path
         self._eval_freq = int(eval_freq)
+        self._eval_freq_type = str(eval_freq_type).lower()
+        if self._eval_freq_type not in ("timesteps", "episodes"):
+            raise ValueError(f"eval_freq_type must be 'timesteps' or 'episodes', got '{eval_freq_type}'")
         self._n_eval_episodes = int(n_eval_episodes)
         self._deterministic = bool(deterministic)
         self._render = bool(render)
@@ -78,11 +84,50 @@ class EphemeralEvalCallback:
                 super().__init__()
                 self._outer = outer_self
                 self.best_mean_reward = float("-inf")
+                if outer_self._eval_freq_type == "episodes":
+                    self._episode_count = 0  # Count completed episodes
+                    self._episodes_since_last_eval = 0  # Episodes completed since last evaluation
+                else:  # timesteps
+                    self._last_eval_step = -1  # Use -1 to indicate not initialized yet
+
+            def _init_callback(self) -> None:
+                """Initialize callback - called once at the start."""
+                super()._init_callback()
+                freq_type_str = "timesteps" if self._outer._eval_freq_type == "timesteps" else "episodes"
+                print(f"[EphemeralEvalCallback] Initialized: will evaluate every {self._outer._eval_freq} {freq_type_str}.")
 
             def _on_step(self) -> bool:
-                # Check if it's time to evaluate (using n_calls like standard EvalCallback)
-                if self._outer._eval_freq > 0 and self.n_calls % self._outer._eval_freq == 0:
-                    self._create_and_evaluate()
+                if self._outer._eval_freq_type == "episodes":
+                    # Check if any episodes have completed by looking at infos
+                    infos = self.locals.get("infos", [])
+                    if isinstance(infos, (list, tuple)):
+                        for info in infos:
+                            if isinstance(info, dict) and "episode" in info:
+                                # An episode has completed
+                                self._episode_count += 1
+                                self._episodes_since_last_eval += 1
+                                
+                                # Check if we've accumulated enough episodes since last evaluation
+                                if self._outer._eval_freq > 0 and self._episodes_since_last_eval >= self._outer._eval_freq:
+                                    print(f"[EphemeralEvalCallback] Episode {self._episode_count} completed. Triggering evaluation (every {self._outer._eval_freq} episodes).")
+                                    self._episodes_since_last_eval = 0  # Reset counter before evaluation
+                                    self._create_and_evaluate()
+                else:  # timesteps
+                    # Check if it's time to evaluate based on num_timesteps
+                    if self._outer._eval_freq > 0 and self.num_timesteps > 0:
+                        # On first call (when _last_eval_step is still -1), initialize it to 0
+                        if self._last_eval_step == -1:
+                            self._last_eval_step = 0
+                            print(f"[EphemeralEvalCallback] Initialized at timestep {self.num_timesteps}. Will evaluate every {self._outer._eval_freq} timesteps.")
+                            return True
+                        
+                        # Check if we've accumulated enough timesteps since last evaluation
+                        steps_since_last_eval = self.num_timesteps - self._last_eval_step
+                        if steps_since_last_eval >= self._outer._eval_freq:
+                            # Update last eval step before evaluation (to avoid re-triggering)
+                            self._last_eval_step = self.num_timesteps
+                            print(f"[EphemeralEvalCallback] Triggering evaluation at timestep {self.num_timesteps} (every {self._outer._eval_freq} timesteps).")
+                            self._create_and_evaluate()
                 return True
 
             def _create_and_evaluate(self) -> None:
@@ -95,7 +140,8 @@ class EphemeralEvalCallback:
                         eval_env = self._outer._eval_env
                     elif self._outer._eval_env_fn is not None:
                         # Create new env from factory function
-                        print(f"[EphemeralEvalCallback] Creating eval environment at step {self.num_timesteps}...")
+                        episode_info = f"after {getattr(self, '_episode_count', 0)} episodes, " if self._outer._eval_freq_type == "episodes" else ""
+                        print(f"[EphemeralEvalCallback] Creating eval environment ({episode_info}timestep {self.num_timesteps})...")
                         eval_env = self._outer._DummyVecEnv([self._outer._eval_env_fn])
                         if self._outer._log_path:
                             import os
@@ -130,13 +176,15 @@ class EphemeralEvalCallback:
                             import os
                             os.makedirs(os.path.dirname(self._outer._best_model_save_path) or ".", exist_ok=True)
                             self.model.save(self._outer._best_model_save_path)
+                        episode_info = f"episode {getattr(self, '_episode_count', 'N/A')}, " if self._outer._eval_freq_type == "episodes" else ""
                         print(
                             f"[EphemeralEvalCallback] New best mean reward: {mean_reward:.2f} +/- {std_reward:.2f} "
-                            f"at step {self.num_timesteps}"
+                            f"({episode_info}timestep {self.num_timesteps})"
                         )
                     else:
+                        episode_info = f"episode {getattr(self, '_episode_count', 'N/A')}, " if self._outer._eval_freq_type == "episodes" else ""
                         print(
-                            f"[EphemeralEvalCallback] Evaluation at step {self.num_timesteps}: "
+                            f"[EphemeralEvalCallback] Evaluation ({episode_info}timestep {self.num_timesteps}): "
                             f"mean_reward={mean_reward:.2f} +/- {std_reward:.2f} "
                             f"(best: {self.best_mean_reward:.2f})"
                         )
