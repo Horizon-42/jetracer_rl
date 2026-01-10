@@ -25,20 +25,21 @@ import threading
 
 class JetRacerActuator:
     """Simple wrapper for JetRacer control"""
-    def __init__(self, throttle_gain=1.0, steering_gain=1.0, steering_offset=0.0):
-        # type: (float, float, float) -> None
+    def __init__(self, throttle_gain=1.0, steering_gain=1.0, steering_offset=0.0, throttle_boost=0.0):
+        # type: (float, float, float, float) -> None
         self._car = None
         self._throttle_gain = throttle_gain
         self._steering_gain = steering_gain
         self._steering_offset = steering_offset
+        self._throttle_boost = throttle_boost  # Added to throttle when throttle > 0 (overcomes deadzone)
         try:
             from jetracer.nvidia_racecar import NvidiaRacecar
             self._car = NvidiaRacecar()
             self._car.throttle_gain = throttle_gain
             self._car.steering_gain = steering_gain
             self._car.steering_offset = steering_offset
-            print("JetRacer initialized with throttle_gain={:.3f}, steering_gain={:.3f}, steering_offset={:.3f}".format(
-                throttle_gain, steering_gain, steering_offset))
+            print("JetRacer initialized: throttle_gain={:.3f}, steering_gain={:.3f}, steering_offset={:.3f}, throttle_boost={:.3f}".format(
+                throttle_gain, steering_gain, steering_offset, throttle_boost))
         except Exception as e:
             print("[ERROR] {}".format(e))
             print("[WARNING] 'jetracer' not found. Running in mock mode.")
@@ -55,6 +56,11 @@ class JetRacerActuator:
             self._car.steering_gain = steering_gain
             self._car.steering_offset = steering_offset
     
+    def set_throttle_boost(self, throttle_boost):
+        # type: (float) -> None
+        """Update throttle boost (deadzone compensation)"""
+        self._throttle_boost = throttle_boost
+    
     def apply(self, throttle, steering, log=False):
         # type: (float, float, bool) -> None
         """Apply throttle and steering values"""
@@ -62,15 +68,24 @@ class JetRacerActuator:
             # Clip to valid ranges
             clipped_throttle = float(max(0.0, min(1.0, throttle)))
             clipped_steering = float(max(-1.0, min(1.0, steering)))
-            self._car.throttle = clipped_throttle
+            
+            # Apply throttle boost to overcome deadzone (only when throttle > 0)
+            if clipped_throttle > 0:
+                boosted_throttle = float(min(1.0, clipped_throttle + self._throttle_boost))
+            else:
+                boosted_throttle = 0.0
+            
+            self._car.throttle = boosted_throttle
             self._car.steering = clipped_steering
             if log:
-                actual_throttle = clipped_throttle * self._throttle_gain
+                # Calculate effective values (what the car actually receives after gain)
+                actual_throttle = boosted_throttle * self._throttle_gain
                 actual_steering = clipped_steering * self._steering_gain + self._steering_offset
-                print("  Input: throttle={:.3f}, steering={:.3f} | Effective: throttle={:.3f}, steering={:.3f}".format(
-                    clipped_throttle, clipped_steering, actual_throttle, actual_steering))
+                print("  Input: thr={:.3f}, steer={:.3f} | Boosted: thr={:.3f} | Effective: thr={:.3f}, steer={:.3f}".format(
+                    clipped_throttle, clipped_steering, boosted_throttle, actual_throttle, actual_steering))
         elif log:
-            print("  [Mock] throttle={:.3f}, steering={:.3f}".format(throttle, steering))
+            boosted = throttle + self._throttle_boost if throttle > 0 else 0.0
+            print("  [Mock] throttle={:.3f} (boosted={:.3f}), steering={:.3f}".format(throttle, boosted, steering))
     
     def stop(self):
         """Stop the car"""
@@ -113,7 +128,7 @@ def test_circle_mode(args):
     print("\n" + "="*70)
     print("CIRCLE MODE TEST")
     print("="*70)
-    print("Throttle: {:.3f} (gain: {:.3f})".format(throttle, args.throttle_gain))
+    print("Throttle: {:.3f} (gain: {:.3f}, boost: {:.3f})".format(throttle, args.throttle_gain, args.throttle_boost))
     print("Steering: {:.3f} (gain: {:.3f}, offset: {:.3f})".format(steering, args.steering_gain, args.steering_offset))
     print("Duration: {:.1f}s".format(args.duration))
     print("Log interval: {} frames".format(args.log_interval))
@@ -176,8 +191,8 @@ def test_step_mode(args):
     print("Steering range: {:.3f} to {:.3f} (step: {:.3f})".format(
         args.steering_min, args.steering_max, args.steering_step))
     print("Test duration per step: {:.1f}s".format(args.step_duration))
-    print("Gains: throttle_gain={:.3f}, steering_gain={:.3f}, steering_offset={:.3f}".format(
-        args.throttle_gain, args.steering_gain, args.steering_offset))
+    print("Gains: throttle_gain={:.3f}, steering_gain={:.3f}, steering_offset={:.3f}, throttle_boost={:.3f}".format(
+        args.throttle_gain, args.steering_gain, args.steering_offset, args.throttle_boost))
     print("="*70)
     print("Starting in 3 seconds... (Press Ctrl+C to stop)")
     print()
@@ -456,6 +471,7 @@ Examples:
     parser.add_argument("--throttle-gain", type=float, default=1, help="Throttle gain (multiplier)")
     parser.add_argument("--steering-gain", type=float, default=1, help="Steering gain (multiplier)")
     parser.add_argument("--steering-offset", type=float, default=0.0, help="Steering offset (added after gain)")
+    parser.add_argument("--throttle-boost", type=float, default=0.0, help="Throttle boost to overcome deadzone (added when throttle > 0)")
     parser.add_argument("--fps", type=float, default=20.0, help="Control loop FPS")
     parser.add_argument("--log-interval", type=int, default=20, help="Log every N frames (0 to disable)")
     
@@ -489,7 +505,8 @@ Examples:
     actuator = JetRacerActuator(
         throttle_gain=args.throttle_gain,
         steering_gain=args.steering_gain,
-        steering_offset=args.steering_offset
+        steering_offset=args.steering_offset,
+        throttle_boost=args.throttle_boost
     )
     
     # Run test based on mode
