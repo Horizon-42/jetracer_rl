@@ -18,3 +18,5 @@ datasets
 viz_out
 
 .vscode
+
+onnx_models

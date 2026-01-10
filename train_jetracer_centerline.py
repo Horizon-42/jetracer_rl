@@ -240,6 +240,14 @@ def parse_args() -> argparse.Namespace:
         help="Unit for --eval-freq: 'timesteps' (default, recommended) or 'episodes'.",
     )
     parser.add_argument("--n-eval-episodes", type=int, default=5)
+    parser.add_argument(
+        "--max-eval-episode-steps",
+        type=int,
+        default=5000,
+        help="Maximum number of steps per episode during evaluation. If None, no limit is applied. "
+             "Episodes will be truncated (not terminated) when reaching this limit. "
+             "Recommended: 5000-10000 steps to prevent infinite episodes when model performs well or stalls.",
+    )
 
     args = parser.parse_args()
 
@@ -551,6 +559,7 @@ def main() -> None:
             n_eval_episodes=int(args.n_eval_episodes),
             deterministic=True,
             render=False,
+            max_episode_steps=getattr(args, "max_eval_episode_steps", 5000),
         )
         callbacks.append(eval_callback.sb3_callback())
     else:

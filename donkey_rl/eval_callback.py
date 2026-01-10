@@ -12,6 +12,7 @@ import os
 from typing import Callable, Optional
 
 import gymnasium as gym
+from gymnasium.wrappers import TimeLimit
 
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.evaluation import evaluate_policy
@@ -55,6 +56,7 @@ class EphemeralEvalCallback:
         n_eval_episodes: int = 5,
         deterministic: bool = True,
         render: bool = False,
+        max_episode_steps: Optional[int] = None,
     ):
         """Initialize the ephemeral evaluation callback.
 
@@ -72,6 +74,10 @@ class EphemeralEvalCallback:
             n_eval_episodes: Number of episodes to run during evaluation.
             deterministic: Whether to use deterministic actions during evaluation.
             render: Whether to render the evaluation (usually False during training).
+            max_episode_steps: Maximum number of steps per episode during evaluation.
+                              If None, no limit is applied. If set, episodes will be
+                              truncated (not terminated) when reaching this limit.
+                              Default: None (no limit). Recommended: 5000-10000 steps.
 
         Raises:
             ValueError: If neither eval_env_fn nor eval_env is provided, or if
@@ -102,6 +108,7 @@ class EphemeralEvalCallback:
         self._n_eval_episodes = int(n_eval_episodes)
         self._deterministic = bool(deterministic)
         self._render = bool(render)
+        self._max_episode_steps = int(max_episode_steps) if max_episode_steps is not None else None
 
         # Create the actual callback implementation
         self._impl = _EphemeralEvalCallbackImpl(
@@ -116,6 +123,7 @@ class EphemeralEvalCallback:
             n_eval_episodes=self._n_eval_episodes,
             deterministic=self._deterministic,
             render=self._render,
+            max_episode_steps=self._max_episode_steps,
         )
 
     @property
@@ -161,6 +169,7 @@ class _EphemeralEvalCallbackImpl(BaseCallback):
         n_eval_episodes: int,
         deterministic: bool,
         render: bool,
+        max_episode_steps: Optional[int],
     ):
         """Initialize the callback implementation.
 
@@ -176,6 +185,7 @@ class _EphemeralEvalCallbackImpl(BaseCallback):
             n_eval_episodes: Number of episodes per evaluation.
             deterministic: Whether to use deterministic actions.
             render: Whether to render during evaluation.
+            max_episode_steps: Maximum steps per episode. If None, no limit.
         """
         super().__init__()
         self._outer = outer_self
@@ -189,6 +199,7 @@ class _EphemeralEvalCallbackImpl(BaseCallback):
         self._n_eval_episodes = n_eval_episodes
         self._deterministic = deterministic
         self._render = render
+        self._max_episode_steps = max_episode_steps
 
         self.best_mean_reward = float("-inf")
 
@@ -303,7 +314,34 @@ class _EphemeralEvalCallbackImpl(BaseCallback):
                     f"[EphemeralEvalCallback] Creating eval environment "
                     f"({episode_info}timestep {self.num_timesteps})..."
                 )
-                eval_env = DummyVecEnv([self._eval_env_fn])
+                
+                # Wrap eval_env_fn to add TimeLimit if max_episode_steps is set
+                def _wrapped_eval_env_fn():
+                    env = self._eval_env_fn()
+                    if self._max_episode_steps is not None and self._max_episode_steps > 0:
+                        # Check if env already has TimeLimit wrapper by unwrapping
+                        unwrapped = env
+                        has_timelimit = False
+                        while hasattr(unwrapped, 'env'):
+                            if isinstance(unwrapped, TimeLimit):
+                                has_timelimit = True
+                                break
+                            unwrapped = unwrapped.env
+                        
+                        if not has_timelimit:
+                            env = TimeLimit(env, max_episode_steps=self._max_episode_steps)
+                            print(
+                                f"[EphemeralEvalCallback] Applied TimeLimit wrapper: "
+                                f"max_episode_steps={self._max_episode_steps}"
+                            )
+                        else:
+                            print(
+                                f"[EphemeralEvalCallback] Environment already has TimeLimit wrapper, "
+                                f"using existing max_episode_steps"
+                            )
+                    return env
+                
+                eval_env = DummyVecEnv([_wrapped_eval_env_fn])
 
                 # Add VecMonitor for logging if log_path is provided
                 if self._log_path:

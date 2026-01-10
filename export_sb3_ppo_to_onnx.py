@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 import numpy as np
 import torch as th
@@ -83,15 +84,30 @@ def verify_export(torch_model, onnx_path, dummy_input):
 def main():
     parser = argparse.ArgumentParser(description="Convert SB3 PPO model to ONNX")
     parser.add_argument("--model", type=str, required=True, help="Path to .zip model file")
-    parser.add_argument("--output", type=str, default="model.onnx", help="Output .onnx file path")
+    parser.add_argument("--output", type=str, default=".", help="Output folder path (default: current directory)")
     parser.add_argument("--height", type=int, default=84, help="Observation height (default: 84)")
     parser.add_argument("--width", type=int, default=84, help="Observation width (default: 84)")
     parser.add_argument("--channels", type=int, default=3, help="Observation channels (default: 3)")
     
     args = parser.parse_args()
     
+    # 从模型路径中提取最后一层文件夹名
+    # 例如: models/scratch_centerline_v4_exp01/last_model.zip -> scratch_centerline_v4_exp01
+    model_dir = os.path.dirname(os.path.abspath(args.model))
+    folder_name = os.path.basename(model_dir)
+    
+    # 构建输出文件路径
+    os.makedirs(args.output, exist_ok=True)
+    output_filename = f"{folder_name}.onnx"
+    output_path = os.path.join(args.output, output_filename)
+    
+    print(f"Input model: {args.model}")
+    print(f"Output folder: {args.output}")
+    print(f"Output filename: {output_filename}")
+    print(f"Full output path: {output_path}\n")
+    
     obs_shape = (args.channels, args.height, args.width)
-    export_model(args.model, args.output, obs_shape)
+    export_model(args.model, output_path, obs_shape)
 
 if __name__ == "__main__":
     main()
