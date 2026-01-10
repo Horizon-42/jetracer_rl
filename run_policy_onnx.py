@@ -251,9 +251,12 @@ def main():
         help="Enable perspective transformation (bird's-eye view) preprocessing (should match training)",
     )
     parser.add_argument("--fps", type=float, default=20.0, help="Target FPS for control loop")
-    parser.add_argument("--throttle-gain", type=float, default=0.4, help="Throttle gain: output = gain * throttle (default: 1.0)")
-    parser.add_argument("--steering-gain", type=float, default=0.6, help="Steering gain: output = gain * steering + offset (default: 1.0)")
-    parser.add_argument("--steering-offset", type=float, default=0.0, help="Steering offset to correct mechanical bias (default: 0.0)")
+    parser.add_argument("--throttle-gain", type=float, default=0.5, help="Throttle gain: output = gain * throttle (default: 1.0)")
+    parser.add_argument("--throttle-boost", type=float, default=0.25, help="Throttle boost: output = gain *(boost+throttle)")
+    parser.add_argument("--throttle-scale", type=float, default=0.05, help="Throttle  scale: output = gain *(boost+scale*throttle)")
+    
+    parser.add_argument("--steering-gain", type=float, default=0.5, help="Steering gain: output = gain * steering + offset (default: 1.0)")
+    parser.add_argument("--steering-offset", type=float, default=0.4, help="Steering offset to correct mechanical bias (default: 0.0)")
     parser.add_argument("--log-interval", type=int, default=10, help="Print log every N frames (default: 10, 0 to disable)")
     args = parser.parse_args()
 
@@ -354,7 +357,12 @@ def main():
             # clip steering to -1.0 to 1.0
             action_steering = np.clip(action_raw[1], -1.0, 1.0)
             # clip throttle to 0.0 to 1.0
-            action_throttle = np.clip(action_raw[0], 0.0, 1.0)
+            action_input_throttle = np.clip(action_raw[0], 0.0, 1.0)
+            # add throttle boost
+            action_throttle = 0
+            if action_input_throttle > 0:
+                action_throttle += 0.25
+                action_throttle += action_input_throttle*args.throttle_scale
             
             # Log model output
             should_log = args.log_interval > 0 and (frame_count % args.log_interval == 0)
