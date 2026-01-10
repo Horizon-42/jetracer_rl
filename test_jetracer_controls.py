@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 JetRacer Control Test Script
 
@@ -7,14 +8,20 @@ including the effects of gain parameters. It supports multiple test modes:
 - Circle mode: Make the car drive in circles
 - Step test: Test different values step by step
 - Interactive mode: Adjust values in real-time
+
+Python 3.6+ compatible
 """
+
+from __future__ import print_function, division
 
 import argparse
 import time
 import sys
 import signal
 import threading
-from typing import Optional
+
+# Python 3.6 compatible type hints
+from typing import Optional  # Python 3.5+ (3.6 definitely has this)
 
 
 class JetRacerActuator:
@@ -70,7 +77,7 @@ class JetRacerActuator:
 
 # Global shutdown flag
 shutdown_flag = threading.Event()
-actuator: Optional[JetRacerActuator] = None
+actuator = None  # type: Optional[JetRacerActuator]
 
 
 def signal_handler(signum, frame):
