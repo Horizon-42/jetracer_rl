@@ -81,7 +81,7 @@ class JetRacerWrapper(gym.ActionWrapper):
         self.last_mapped_action: Optional[np.ndarray] = None
 
         self.action_space = gym.spaces.Box(
-            low=np.array([-0.5, -1.0], dtype=np.float32),
+            low=np.array([0, -1.0], dtype=np.float32),
             high=np.array([1.0, 1.0], dtype=np.float32),
             dtype=np.float32,
         )

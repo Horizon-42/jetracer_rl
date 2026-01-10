@@ -13,6 +13,7 @@ import sys
 
 from donkey_rl.callbacks import BestModelOnEpisodeRewardCallback, DebugObsDumpCallback, TrainingVizCallback
 from donkey_rl.env import build_env_fn
+from donkey_rl.eval_callback import EphemeralEvalCallback
 
 import argparse
 import os
@@ -220,6 +221,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--eval",
         action="store_true",
+        default=True,
         help="Enable EvalCallback. Requires a separate eval sim on eval-host/eval-port.",
     )
     parser.add_argument("--eval-host", type=str, default="127.0.0.1")
@@ -229,13 +231,10 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Eval simulator port. Default: train port + 1.",
     )
-    parser.add_argument("--eval-exe-path", type=str, default="remote")
-    parser.add_argument("--eval-freq", type=int, default=10_000)
-    parser.add_argument("--n-eval-episodes", type=int, default=3)
+    parser.add_argument("--eval-freq", type=int, default=5_000, help="EvalCallback eval frequency (in timesteps).")
+    parser.add_argument("--n-eval-episodes", type=int, default=5)
 
     args = parser.parse_args()
-    if args.eval_port == 0:
-        args.eval_port = int(args.port) + 1
 
     # Per-run output directories (prevents interfering when launching multiple trainings)
     if args.run_name:
@@ -500,8 +499,8 @@ def main() -> None:
                 build_env_fn(
                     env_id=args.env_id,
                     host=args.eval_host,
-                    port=args.eval_port,
-                    exe_path=args.eval_exe_path,
+                    port=args.port+6,
+                    exe_path=args.exe_path,
                     fast_mode=args.fast,
                     reward_type=args.reward_type,
                     max_cte=args.max_cte,
@@ -523,6 +522,7 @@ def main() -> None:
                     obs_height=args.obs_height,
                     # Keep evaluation deterministic by default.
                     domain_rand=False,
+                    perspective_transform=bool(getattr(args, "perspective_transform", False)),
                     aug_brightness=float(getattr(args, "aug_brightness", 0.25)),
                     aug_contrast=float(getattr(args, "aug_contrast", 0.25)),
                     aug_noise_std=float(getattr(args, "aug_noise_std", 0.02)),
@@ -535,8 +535,17 @@ def main() -> None:
             ]
         )
         eval_env = VecMonitor(eval_env, filename=os.path.join(args.log_dir, "eval_monitor.csv"))
-        eval_callback = EvalCallback(
-            eval_env,
+        # eval_callback = EvalCallback(
+        #     eval_env,
+        #     best_model_save_path=os.path.join(args.log_dir, "best"),
+        #     log_path=os.path.join(args.log_dir, "eval"),
+        #     eval_freq=int(args.eval_freq),
+        #     n_eval_episodes=int(args.n_eval_episodes),
+        #     deterministic=True,
+        #     render=False,
+        # )
+        eval_callback = EphemeralEvalCallback(
+            eval_env=eval_env,
             best_model_save_path=os.path.join(args.log_dir, "best"),
             log_path=os.path.join(args.log_dir, "eval"),
             eval_freq=int(args.eval_freq),

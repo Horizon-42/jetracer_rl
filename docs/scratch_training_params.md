@@ -21,6 +21,7 @@ python3 train_jetracer_centerline.py \
   --perspective-transform \
   --sim-io-timeout-s 20 \
   --port 9091 \
+  
   --run-name scratch_baseline
 ```
 
