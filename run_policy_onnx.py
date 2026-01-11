@@ -98,34 +98,39 @@ def _get_perspective_transform_matrix(cam_width: int, cam_height: int):
     return matrix, (design_width, design_height)
 
 
-def preprocess_image(frame_bgr, model_width, model_height, perspective_transform=False, perspective_matrix=None, perspective_size=None):
+def preprocess_image(frame_bgr, model_width, model_height, obs_mode="raw", perspective_matrix=None, perspective_size=None):
     """
     Preprocess camera frame for model inference.
     
     This matches the preprocessing pipeline used in training (donkey_rl.obs_preprocess.ObsPreprocess):
-    1. Apply perspective transformation (if enabled) for bird's-eye view
-    2. Resize to target dimensions
-    3. Convert BGR to RGB
-    4. Convert HWC to CHW format (channels-first)
-    5. Normalize to [0, 1] range
+    1. Apply perspective transformation (if needed by obs_mode)
+    2. Combine images based on obs_mode (raw, perspective, or mix)
+    3. Resize to target dimensions
+    4. Convert BGR to RGB
+    5. Convert HWC to CHW format (channels-first)
+    6. Normalize to [0, 1] range
     
     Args:
         frame_bgr: Input frame in BGR format (HWC uint8)
         model_width: Target width for model input
         model_height: Target height for model input
-        perspective_transform: Whether to apply perspective transformation
+        obs_mode: Observation mode ('raw', 'perspective', 'mix')
+            - 'raw': Use only raw camera image
+            - 'perspective': Use only perspective-transformed (bird's-eye view) image
+            - 'mix': Stack raw + perspective vertically, then resize to target dimensions
         perspective_matrix: Precomputed perspective transform matrix (3x3)
         perspective_size: Output size for perspective transform (width, height)
     
     Returns:
         Preprocessed image ready for model inference (1CHW float32 in [0, 1])
     """
-    # Step 1: Apply perspective transformation (if enabled)
-    if perspective_transform and perspective_matrix is not None and perspective_size is not None:
-        # Ensure frame is in correct format for warpPerspective (uint8)
-        if frame_bgr.dtype != np.uint8:
-            frame_bgr = np.clip(frame_bgr, 0, 255).astype(np.uint8)
-        
+    # Ensure frame is in correct format (uint8)
+    if frame_bgr.dtype != np.uint8:
+        frame_bgr = np.clip(frame_bgr, 0, 255).astype(np.uint8)
+    
+    # Step 1: Apply perspective transformation (if needed)
+    transformed = None
+    if obs_mode in ("perspective", "mix") and perspective_matrix is not None and perspective_size is not None:
         transformed = cv2.warpPerspective(
             frame_bgr,
             perspective_matrix,
@@ -134,19 +139,32 @@ def preprocess_image(frame_bgr, model_width, model_height, perspective_transform
             borderMode=cv2.BORDER_CONSTANT,
             borderValue=(0, 0, 0),  # Black padding
         )
+    
+    # Step 2: Combine images based on obs_mode
+    if obs_mode == "raw":
+        to_resize = frame_bgr
+    elif obs_mode == "perspective":
+        to_resize = transformed
+    elif obs_mode == "mix":
+        # Stack raw + perspective vertically
+        # First resize raw to match perspective size for proper stacking
+        raw_resized = cv2.resize(frame_bgr, perspective_size, interpolation=cv2.INTER_AREA)
+        # Stack vertically: [raw on top, perspective on bottom]
+        to_resize = np.vstack([raw_resized, transformed])
     else:
-        transformed = frame_bgr
+        # Fallback to raw
+        to_resize = frame_bgr
     
-    # Step 2: Resize to target dimensions (using INTER_AREA for downsampling)
-    img = cv2.resize(transformed, (model_width, model_height), interpolation=cv2.INTER_AREA)
+    # Step 3: Resize to target dimensions (using INTER_AREA for downsampling)
+    img = cv2.resize(to_resize, (model_width, model_height), interpolation=cv2.INTER_AREA)
     
-    # Step 3: Convert BGR to RGB
+    # Step 4: Convert BGR to RGB
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     
-    # Step 4: Convert HWC to CHW format (channels-first)
+    # Step 5: Convert HWC to CHW format (channels-first)
     img = img.transpose((2, 0, 1))
     
-    # Step 5: Normalize to [0, 1] range and add batch dimension
+    # Step 6: Normalize to [0, 1] range and add batch dimension
     img = np.ascontiguousarray(img, dtype=np.float32) / 255.0
     return img[np.newaxis, ...]
 
@@ -249,7 +267,15 @@ def main():
         "--perspective-transform",
         action="store_false",
         default=True,
-        help="Enable perspective transformation (bird's-eye view) preprocessing (should match training)",
+        help="Enable perspective transformation (bird's-eye view) preprocessing. Deprecated: use --obs-mode instead.",
+    )
+    parser.add_argument(
+        "--obs-mode",
+        type=str,
+        default="mix",
+        choices=["auto", "raw", "perspective", "mix"],
+        help="Observation mode: 'auto' (use --perspective-transform flag), 'raw' (original image only), "
+             "'perspective' (bird's-eye view only), 'mix' (stack raw+perspective vertically, compress to 84x84).",
     )
     parser.add_argument("--fps", type=float, default=20.0, help="Target FPS for control loop")
     parser.add_argument("--throttle-gain", type=float, default=0.5, help="Throttle gain: output = gain * throttle (default: 1.0)")
@@ -276,16 +302,23 @@ def main():
         print(f"Error loading ONNX: {e}")
         return
 
-    # Initialize perspective transform (if enabled)
+    # Determine obs_mode
+    obs_mode = args.obs_mode.lower().strip()
+    if obs_mode == "auto":
+        # Backward compatibility: use perspective_transform flag
+        obs_mode = "perspective" if args.perspective_transform else "raw"
+    
+    # Initialize perspective transform (if needed by obs_mode)
     perspective_matrix = None
     perspective_size = None
-    if args.perspective_transform:
+    if obs_mode in ("perspective", "mix"):
         perspective_matrix, perspective_size = _get_perspective_transform_matrix(
             args.cam_width, args.cam_height
         )
-        print(f"Perspective transform enabled: matrix shape={perspective_matrix.shape}, output size={perspective_size}")
+        print(f"Observation mode: {obs_mode}")
+        print(f"  - Perspective transform: matrix shape={perspective_matrix.shape}, output size={perspective_size}")
     else:
-        print("Perspective transform disabled")
+        print(f"Observation mode: {obs_mode} (no perspective transform)")
 
     # Initialize car actuator
     actuator_resource = JetRacerActuator(
@@ -346,7 +379,7 @@ def main():
                 frame,
                 args.obs_width,
                 args.obs_height,
-                perspective_transform=args.perspective_transform,
+                obs_mode=obs_mode,
                 perspective_matrix=perspective_matrix,
                 perspective_size=perspective_size,
             )
