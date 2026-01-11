@@ -26,7 +26,7 @@ from donkey_rl.rewards import (
     JetRacerRaceRewardWrapperTrackLimit,
     RaceRewardConfig,
 )
-from donkey_rl.wrappers import JetRacerWrapper, RandomFrictionWrapper, StepTimeoutWrapper
+from donkey_rl.wrappers import JetRacerWrapper, RandomFrictionWrapper, StallDetectionWrapper, StepTimeoutWrapper
 
 
 def make_donkey_env(
@@ -274,6 +274,10 @@ def build_env_fn(
     random_friction: bool,
     friction_min: float,
     friction_max: float,
+    stall_detection: bool = True,
+    stall_speed_threshold: float = 0.1,
+    stall_max_steps: int = 50,
+    stall_penalty: float = 20.0,
     car_name: str = "JetRacerAgent",
 ) -> Callable[[], gym.Env]:
     """Build a factory function that creates fully configured DonkeyCar environments.
@@ -325,6 +329,10 @@ def build_env_fn(
         random_friction: If True, randomize friction per episode.
         friction_min: Minimum friction scale factor (applied if random_friction=True).
         friction_max: Maximum friction scale factor (applied if random_friction=True).
+        stall_detection: If True, terminate episode when car is stuck (default: True).
+        stall_speed_threshold: Speed below this is considered stalled (default: 0.1).
+        stall_max_steps: Terminate after this many consecutive stalled steps (default: 50).
+        stall_penalty: Penalty when episode terminates due to stall (default: 20.0).
         car_name: Name identifier for the car in the simulator.
 
     Returns:
@@ -384,6 +392,18 @@ def build_env_fn(
             v4_w_smooth=v4_w_smooth,
             v4_alive_bonus=v4_alive_bonus,
         )
+
+        # Step 4.5: Apply stall detection wrapper (if enabled)
+        # This terminates episodes early if the car gets stuck
+        if stall_detection:
+            env = StallDetectionWrapper(
+                env,
+                speed_threshold=stall_speed_threshold,
+                max_stall_steps=stall_max_steps,
+                stall_penalty=stall_penalty,
+            )
+            print(f"Stall detection enabled: threshold={stall_speed_threshold}, "
+                  f"max_steps={stall_max_steps}, penalty={stall_penalty}")
 
         # Step 5: Apply observation preprocessing wrapper
         # This handles resizing, perspective transform, and domain randomization

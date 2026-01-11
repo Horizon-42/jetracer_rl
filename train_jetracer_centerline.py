@@ -136,6 +136,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--friction-min", type=float, default=0.4, help="Min throttle scale when random friction enabled.")
     parser.add_argument("--friction-max", type=float, default=1.2, help="Max throttle scale when random friction enabled.")
 
+    # Stall detection (prevents car from learning to stop)
+    parser.add_argument(
+        "--stall-detection",
+        action="store_false",
+        default=True,
+        help="Disable stall detection (enabled by default). Terminates episode if car stops moving.",
+    )
+    parser.add_argument("--stall-speed-threshold", type=float, default=0.1, help="Speed below this is considered stalled.")
+    parser.add_argument("--stall-max-steps", type=int, default=50, help="Terminate after this many consecutive stalled steps.")
+    parser.add_argument("--stall-penalty", type=float, default=20.0, help="Penalty when episode terminates due to stall.")
+
     parser.add_argument(
         "--perspective-transform",
         action="store_false",
@@ -447,6 +458,10 @@ def main() -> None:
                 random_friction=bool(getattr(args, "random_friction", False)),
                 friction_min=float(getattr(args, "friction_min", 0.4)),
                 friction_max=float(getattr(args, "friction_max", 1.2)),
+                stall_detection=bool(getattr(args, "stall_detection", True)),
+                stall_speed_threshold=float(getattr(args, "stall_speed_threshold", 0.1)),
+                stall_max_steps=int(getattr(args, "stall_max_steps", 50)),
+                stall_penalty=float(getattr(args, "stall_penalty", 20.0)),
                 car_name=str(getattr(args, "run_id", "JetRacerAgent")),
             )
         ]
@@ -555,6 +570,10 @@ def main() -> None:
             random_friction=False,
             friction_min=1.0,
             friction_max=1.0,
+            stall_detection=bool(getattr(args, "stall_detection", True)),
+            stall_speed_threshold=float(getattr(args, "stall_speed_threshold", 0.1)),
+            stall_max_steps=int(getattr(args, "stall_max_steps", 50)),
+            stall_penalty=float(getattr(args, "stall_penalty", 20.0)),
             car_name=str(getattr(args, "run_id", "JetRacerAgent")) + "_eval",
         )
         

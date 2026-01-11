@@ -4,6 +4,7 @@ This module provides wrappers that modify environment behavior:
 - StepTimeoutWrapper: Prevents hanging on simulator disconnections
 - JetRacerWrapper: Maps JetRacer action format to DonkeyCar format
 - RandomFrictionWrapper: Domain randomization via friction scaling
+- StallDetectionWrapper: Terminates episode when car is stuck/stalled
 """
 
 from __future__ import annotations
@@ -287,5 +288,103 @@ class RandomFrictionWrapper(gym.Wrapper):
         # Add friction scale to info for logging/debugging
         if isinstance(info, dict):
             info.setdefault("friction_scale", float(self.friction_scale))
+
+        return obs, reward, terminated, truncated, info
+
+
+class StallDetectionWrapper(gym.Wrapper):
+    """Detect when the car is stuck/stalled and terminate the episode early.
+
+    This wrapper monitors the car's speed and terminates the episode if the
+    speed stays below a threshold for too many consecutive steps. This prevents
+    the agent from learning to "game" the reward by simply stopping.
+
+    How it works:
+    - On each step, check if speed < speed_threshold
+    - If yes, increment stall counter
+    - If stall counter >= max_stall_steps, terminate episode with penalty
+    - If speed >= speed_threshold, reset stall counter
+
+    Attributes:
+        stall_count: Current consecutive steps with low speed.
+
+    Example:
+        >>> env = make_donkey_env(...)
+        >>> env = StallDetectionWrapper(env, speed_threshold=0.1, max_stall_steps=50)
+        >>> obs, info = env.reset()
+        >>> # Episode will auto-terminate if car stays still for 50+ steps
+    """
+
+    def __init__(
+        self,
+        env: gym.Env,
+        *,
+        speed_threshold: float = 0.1,
+        max_stall_steps: int = 50,
+        stall_penalty: float = 20.0,
+    ):
+        """Initialize the stall detection wrapper.
+
+        Args:
+            env: The environment to wrap.
+            speed_threshold: Speed below this value is considered "stalled" (default: 0.1).
+            max_stall_steps: Terminate after this many consecutive stalled steps (default: 50).
+            stall_penalty: Penalty added to reward when episode terminates due to stall (default: 20.0).
+        """
+        super().__init__(env)
+        self._speed_threshold = float(speed_threshold)
+        self._max_stall_steps = int(max_stall_steps)
+        self._stall_penalty = float(stall_penalty)
+        self.stall_count: int = 0
+
+    def reset(self, **kwargs):  # type: ignore[override]
+        """Reset the environment and stall counter.
+
+        Args:
+            **kwargs: Additional arguments passed to env.reset().
+
+        Returns:
+            The reset observation and info dict.
+        """
+        self.stall_count = 0
+        return self.env.reset(**kwargs)
+
+    def step(self, action):  # type: ignore[override]
+        """Step the environment with stall detection.
+
+        Monitors speed and terminates episode if car is stalled for too long.
+
+        Args:
+            action: Action to take in the environment.
+
+        Returns:
+            The step result tuple. If stalled too long, terminated=True and
+            reward is reduced by stall_penalty.
+        """
+        obs, reward, terminated, truncated, info = self.env.step(action)
+
+        # Extract speed from info dict
+        info_dict = dict(info) if isinstance(info, dict) else {}
+        speed = float(info_dict.get("speed", 0.0) or 0.0)
+
+        # Check if stalled
+        if speed < self._speed_threshold:
+            self.stall_count += 1
+        else:
+            self.stall_count = 0
+
+        # Terminate if stalled for too long
+        stalled_out = False
+        if self.stall_count >= self._max_stall_steps:
+            stalled_out = True
+            terminated = True
+            reward -= self._stall_penalty
+
+        # Add stall info for debugging
+        if isinstance(info, dict):
+            info["stall_count"] = self.stall_count
+            info["stalled_out"] = stalled_out
+            if stalled_out:
+                info["stall_penalty"] = self._stall_penalty
 
         return obs, reward, terminated, truncated, info
