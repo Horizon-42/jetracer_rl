@@ -250,7 +250,7 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Eval simulator port. Default: train port + 6.",
     )
-    parser.add_argument("--eval-freq", type=int, default=20_000, help="EvalCallback eval frequency. Unit depends on --eval-freq-type.")
+    parser.add_argument("--eval-freq", type=int, default=10_000, help="EvalCallback eval frequency. Unit depends on --eval-freq-type.")
     parser.add_argument(
         "--eval-freq-type",
         type=str,
