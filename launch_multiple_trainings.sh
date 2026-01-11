@@ -63,7 +63,7 @@ declare -a TRAIN_DESCRIPTIONS=(
 
 declare -a TRAIN_COMMANDS=(
     # base (最基础 reward)
-    "python3 train_jetracer_centerline.py --reward-type base --max-cte 3.0 --total-timesteps 200000 --perspective-transform --sim-io-timeout-s 20 --port 9091 --run-name scratch_baseline_${SUFFIX}"
+    # "python3 train_jetracer_centerline.py --reward-type base --max-cte 3.0 --total-timesteps 200000 --perspective-transform --sim-io-timeout-s 20 --port 9091 --run-name scratch_baseline_${SUFFIX}"
     
     # base with perspective transform (第二个base变体，注意文档中这个命令缺少 --perspective-transform，但标题说有)
     "python3 train_jetracer_centerline.py --reward-type base --max-cte 3.0 --total-timesteps 200000 --sim-io-timeout-s 20 --port 10091 --run-name scratch_base_pers_${SUFFIX}"

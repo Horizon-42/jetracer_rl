@@ -528,9 +528,16 @@ def main() -> None:
             ).sb3_callback(),
         )
 
-    best_zip_in_log = os.path.join(args.log_dir, "best", "best_model.zip")
-    eval_callback = None
-
+    # Set up model saving paths
+    # Training best model: saved based on training episode rewards
+    best_train_model_path = os.path.join(args.run_dir, "best_train_model.zip")
+    # Eval best model: saved based on evaluation mean reward
+    best_eval_model_path = os.path.join(args.run_dir, "best_eval_model.zip")
+    
+    # Always save training best model (based on training episode rewards)
+    callbacks.append(BestModelOnEpisodeRewardCallback(best_train_model_path).sb3_callback())
+    
+    # If evaluation is enabled, also save eval best model
     if args.eval:
         # Create eval_env_fn that will be called only when evaluation is needed
         # If eval_port is 0, use train port + 6 (original behavior for backward compatibility)
@@ -579,9 +586,10 @@ def main() -> None:
         
         # Create callback with lazy env initialization
         # The eval_env will only be created when evaluation is triggered
+        # Save eval best model to a separate file
         eval_callback = EphemeralEvalCallback(
             eval_env_fn=eval_env_fn,
-            best_model_save_path=os.path.join(args.log_dir, "best"),
+            best_model_save_path=best_eval_model_path,
             log_path=os.path.join(args.log_dir, "eval"),
             eval_freq=int(args.eval_freq),
             eval_freq_type=str(getattr(args, "eval_freq_type", "timesteps")),
@@ -591,8 +599,6 @@ def main() -> None:
             max_episode_steps=getattr(args, "max_eval_episode_steps", 5000),
         )
         callbacks.append(eval_callback.sb3_callback())
-    else:
-        callbacks.append(BestModelOnEpisodeRewardCallback(args.best_model_path).sb3_callback())
 
     cb = CallbackList(callbacks)
 
@@ -604,8 +610,6 @@ def main() -> None:
 
         # Note: eval_callback manages its own eval_env lifecycle, so we don't need to
         # manually evaluate here. The callback will have already run evaluations during training.
-
-        _sync_best_model(best_zip_in_log, args.best_model_path)
         raise
     except (TimeoutError, ConnectionError, BrokenPipeError, OSError) as e:
         # When Unity disconnects or IO hangs/aborts, fail fast and save progress.
@@ -618,23 +622,18 @@ def main() -> None:
 
         # Note: eval_callback manages its own eval_env lifecycle, so we don't need to
         # manually evaluate here. The callback will have already run evaluations during training.
-
-        if os.path.exists(best_zip_in_log):
-            _sync_best_model(best_zip_in_log, args.best_model_path)
         raise SystemExit(2)
     finally:
-        if os.path.exists(best_zip_in_log):
-            _sync_best_model(best_zip_in_log, args.best_model_path)
-
         # eval_env is managed by eval_callback and will be closed automatically
         # when the callback is garbage collected. No need to close it here.
         train_env.close()
 
     model.save(args.save_path)
-    _sync_best_model(best_zip_in_log, args.best_model_path)
     print(f"Saved last model to: {args.save_path}")
-    if os.path.exists(args.best_model_path):
-        print(f"Saved best model to: {args.best_model_path}")
+    if os.path.exists(best_train_model_path):
+        print(f"Saved best training model to: {best_train_model_path}")
+    if args.eval and os.path.exists(best_eval_model_path):
+        print(f"Saved best eval model to: {best_eval_model_path}")
 
 
 if __name__ == "__main__":
