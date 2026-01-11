@@ -1,8 +1,10 @@
-"""Real car Gymnasium environment for JetRacer RL training.
+"""Real car Gym environment for JetRacer RL training.
 
-This module provides a Gymnasium environment for training RL policies directly
+This module provides a Gym environment for training RL policies directly
 on a real JetRacer car. It estimates CTE (cross-track error) from camera images
 using computer vision, enabling centerline-following reward functions.
+
+Compatible with: Python 3.6+, gym 0.21.0, stable-baselines3 1.2
 
 Key differences from simulation:
 - CTE is estimated from camera images (not ground truth)
@@ -16,24 +18,22 @@ Usage:
         cte_estimator="edge_detection",  # or "centerline_tracking"
         max_cte=1.0,
     )
-    obs, info = env.reset()
+    obs = env.reset()
     
     for _ in range(1000):
         action = policy(obs)
-        obs, reward, terminated, truncated, info = env.step(action)
-        if terminated:
-            obs, info = env.reset()
+        obs, reward, done, info = env.step(action)
+        if done:
+            obs = env.reset()
 """
 
-from __future__ import annotations
-
 import time
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, Callable
 
 import cv2
-import gymnasium as gym
+import gym
 import numpy as np
-from gymnasium import spaces
+from gym import spaces
 
 
 class VisualCTEEstimator:
@@ -195,7 +195,7 @@ class VisualCTEEstimator:
 
 
 class RealJetRacerEnv(gym.Env):
-    """Gymnasium environment for real JetRacer car.
+    """Gym environment for real JetRacer car (gym 0.21.0 compatible).
     
     This environment interfaces with a real JetRacer car and provides:
     - Camera observations (like simulation)
@@ -205,9 +205,13 @@ class RealJetRacerEnv(gym.Env):
     
     Note: Unlike simulation, the environment cannot automatically reset
     after crashes. You need to manually reposition the car.
+    
+    API: gym 0.21.0 (old API)
+    - reset() returns: observation
+    - step() returns: observation, reward, done, info
     """
     
-    metadata = {"render_modes": ["human", "rgb_array"]}
+    metadata = {"render.modes": ["human", "rgb_array"]}  # gym 0.21 format
     
     def __init__(
         self,
@@ -315,6 +319,7 @@ class RealJetRacerEnv(gym.Env):
         self._last_steering = 0.0
         self._last_cte = 0.0
         self._last_speed = 0.0
+        self._last_confidence = 0.0
         
     def _init_perspective_transform(self):
         """Initialize perspective transform matrix (same as training)."""
@@ -454,19 +459,15 @@ class RealJetRacerEnv(gym.Env):
         self._last_throttle = 0.0
         print("[RealJetRacerEnv] EMERGENCY STOP!")
     
-    def reset(
-        self,
-        *,
-        seed: Optional[int] = None,
-        options: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def reset(self) -> np.ndarray:
         """Reset the environment.
         
         Note: For real car, this just stops the car and waits for user
         to reposition it. You may want to add a countdown or button press.
-        """
-        super().reset(seed=seed)
         
+        Returns:
+            observation: Initial observation (gym 0.21 API)
+        """
         # Initialize hardware if not done
         self._init_hardware()
         
@@ -483,7 +484,7 @@ class RealJetRacerEnv(gym.Env):
         print("[RealJetRacerEnv] Press Enter to start episode...")
         try:
             input()  # Wait for user
-        except:
+        except Exception:
             pass
         
         # Get initial observation
@@ -494,21 +495,19 @@ class RealJetRacerEnv(gym.Env):
         
         obs = self._get_observation(frame)
         
-        # Estimate initial CTE
+        # Estimate initial CTE (store for info access)
         cte, confidence = self.cte_estimator.estimate(frame)
         self._last_cte = cte
+        self._last_confidence = confidence
         
-        info = {
-            "cte": cte,
-            "speed": 0.0,
-            "confidence": confidence,
-            "step": 0,
-        }
-        
-        return obs, info
+        return obs
     
-    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
-        """Execute one environment step."""
+    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
+        """Execute one environment step.
+        
+        Returns:
+            obs, reward, done, info (gym 0.21 API - 4 values)
+        """
         self._step_count += 1
         
         # Parse action
@@ -533,6 +532,7 @@ class RealJetRacerEnv(gym.Env):
         # Estimate CTE
         cte, confidence = self.cte_estimator.estimate(frame)
         self._last_cte = cte
+        self._last_confidence = confidence
         
         # Estimate speed (simple: use throttle as proxy)
         speed = max(0.0, throttle * 1.0)  # Adjust scaling as needed
@@ -547,11 +547,14 @@ class RealJetRacerEnv(gym.Env):
             terminated = True
             reward = -self.offtrack_penalty
         
-        # Check for max steps
+        # Check for max steps (truncated in new API, combined into done for old API)
         truncated = self._step_count >= self.max_episode_steps
         
+        # Combine terminated and truncated into single done flag (gym 0.21 API)
+        done = terminated or truncated
+        
         # Stop car if episode ends
-        if terminated or truncated:
+        if done:
             self._apply_action(0.0, 0.0)
         
         info = {
@@ -561,9 +564,10 @@ class RealJetRacerEnv(gym.Env):
             "step": self._step_count,
             "throttle": throttle,
             "steering": steering,
+            "TimeLimit.truncated": truncated and not terminated,  # SB3 convention
         }
         
-        return obs, reward, terminated, truncated, info
+        return obs, reward, done, info
     
     def render(self):
         """Render the environment."""
@@ -617,19 +621,20 @@ if __name__ == "__main__":
         print("=== Test Mode ===")
         print("This will display CTE estimation. Press Ctrl+C to stop.")
         
-        obs, info = env.reset()
+        obs = env.reset()  # gym 0.21 API: returns only obs
         
         try:
             while True:
                 # Zero action (car stationary)
                 action = np.array([0.0, 0.0], dtype=np.float32)
-                obs, reward, terminated, truncated, info = env.step(action)
+                obs, reward, done, info = env.step(action)  # gym 0.21 API: 4 values
                 
-                print(f"CTE: {info['cte']:.3f}, Confidence: {info['confidence']:.2f}, Reward: {reward:.3f}")
+                print("CTE: {:.3f}, Confidence: {:.2f}, Reward: {:.3f}".format(
+                    info['cte'], info['confidence'], reward))
                 env.render()
                 
-                if terminated or truncated:
-                    obs, info = env.reset()
+                if done:
+                    obs = env.reset()
                 
                 time.sleep(0.1)
         except KeyboardInterrupt:
@@ -664,7 +669,7 @@ if __name__ == "__main__":
             
         except ImportError:
             print("stable-baselines3 not installed. Install with:")
-            print("  pip install stable-baselines3")
+            print("  pip install stable-baselines3==1.2.0")
         finally:
             env.close()
 
