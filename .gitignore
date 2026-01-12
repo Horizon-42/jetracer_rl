@@ -1,5 +1,5 @@
 *.zip
-tensorboard_logs
+tensorboard_logs*
 
 __pycache__
 
