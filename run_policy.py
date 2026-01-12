@@ -68,10 +68,39 @@ def _parse_args() -> argparse.Namespace:
         "--perspective-transform",
         action="store_false",
         default=True,
-        help="Enable perspective transformation (bird's-eye view) preprocessing (should match training)",
+        help="Enable perspective transformation (bird's-eye view) preprocessing (should match training). Deprecated: use --obs-mode instead.",
+    )
+    p.add_argument(
+        "--obs-mode",
+        type=str,
+        default="mask",
+        choices=["auto", "raw", "perspective", "mix", "mask"],
+        help="Observation mode: 'auto' (use --perspective-transform flag), 'raw' (original image only), "
+             "'perspective' (bird's-eye view only), 'mix' (stack raw+perspective vertically), "
+             "'mask' (extract binary mask using HSV thresholds). Should match training.",
+    )
+    p.add_argument(
+        "--mask-hsv-lower",
+        type=str,
+        default="10,100,100",
+        help="HSV lower bound for mask extraction (comma-separated, e.g. '10,100,100'). Only used when obs-mode=mask. Should match training.",
+    )
+    p.add_argument(
+        "--mask-hsv-upper",
+        type=str,
+        default="25,255,255",
+        help="HSV upper bound for mask extraction (comma-separated, e.g. '25,255,255'). Only used when obs-mode=mask. Should match training.",
     )
 
     return p.parse_args()
+
+
+def _parse_hsv_tuple(hsv_str: str) -> tuple:
+    """Parse HSV string like '0,0,0' into tuple (0, 0, 0)."""
+    parts = hsv_str.strip().split(",")
+    if len(parts) != 3:
+        raise ValueError(f"HSV must have 3 values, got: {hsv_str}")
+    return tuple(int(p.strip()) for p in parts)
 
 
 def _make_sim_env(
@@ -84,6 +113,9 @@ def _make_sim_env(
     obs_height: int,
     max_cte: float,
     perspective_transform: bool,
+    obs_mode: str,
+    mask_hsv_lower: tuple,
+    mask_hsv_upper: tuple,
 ):
     from donkey_rl.compat import patch_gym_donkeycar_stop_join, patch_old_gym_render_mode
 
@@ -125,11 +157,24 @@ def _make_sim_env(
         height=obs_height,
         domain_rand=False,
         perspective_transform=perspective_transform,
+        obs_mode=obs_mode,
+        mask_hsv_lower=mask_hsv_lower,
+        mask_hsv_upper=mask_hsv_upper,
     )
     return env
 
 
 def _run_policy(args: argparse.Namespace) -> None:
+    # Parse mask HSV thresholds
+    mask_hsv_lower = _parse_hsv_tuple(args.mask_hsv_lower)
+    mask_hsv_upper = _parse_hsv_tuple(args.mask_hsv_upper)
+    
+    # Determine obs_mode
+    obs_mode = args.obs_mode.lower().strip()
+    if obs_mode == "auto":
+        # Backward compatibility: use perspective_transform flag
+        obs_mode = "perspective" if args.perspective_transform else "raw"
+    
     env = _make_sim_env(
         env_id=args.env_id,
         host=args.host,
@@ -139,6 +184,9 @@ def _run_policy(args: argparse.Namespace) -> None:
         obs_height=args.obs_height,
         max_cte=args.max_cte,
         perspective_transform=args.perspective_transform,
+        obs_mode=obs_mode,
+        mask_hsv_lower=mask_hsv_lower,
+        mask_hsv_upper=mask_hsv_upper,
     )
 
     model = _load_sb3_model(args.model)
