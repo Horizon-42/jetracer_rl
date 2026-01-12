@@ -81,6 +81,7 @@ class VisualCTEEstimator:
         
         # For visualization/debugging
         self.last_debug_image: Optional[np.ndarray] = None
+        self.last_mask_image: Optional[np.ndarray] = None  # Mask used for CTE estimation
     
     def estimate(self, frame_bgr: np.ndarray) -> Tuple[float, float]:
         """Estimate CTE from camera image.
@@ -116,6 +117,9 @@ class VisualCTEEstimator:
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         edges = cv2.Canny(blurred, 50, 150)
+        
+        # Store edge detection mask for visualization
+        self.last_mask_image = edges.copy()
         
         # Find edge points in bottom rows
         scan_row = edges.shape[0] - 10  # Near bottom
@@ -167,6 +171,9 @@ class VisualCTEEstimator:
         # Convert to HSV and detect centerline color
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(hsv, self.centerline_lower, self.centerline_upper)
+        
+        # Store mask for visualization
+        self.last_mask_image = mask.copy()
         
         # Find centroid of detected region
         moments = cv2.moments(mask)
