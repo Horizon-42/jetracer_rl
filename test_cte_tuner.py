@@ -39,14 +39,16 @@ import numpy as np
 class CTEEstimator:
     """CTE 估算器"""
 
-    def __init__(self, method: str = "edge_detection", max_cte: float = 3.0):
+    def __init__(self, method: str = "canny_edges", max_cte: float = 3.0):
         self.method = method
         self.max_cte = max_cte
         self.last_debug_image: Optional[np.ndarray] = None
 
         # 默认阈值
+        # For color_edge_detection method (HSV-based edge detection)
         self.edge_lower = np.array([0, 0, 200])  # 白色边线
         self.edge_upper = np.array([180, 30, 255])
+        # For centerline_tracking method (HSV-based centerline detection)
         self.centerline_lower = np.array([10, 100, 100])  # 橙/黄色中心线
         self.centerline_upper = np.array([25, 255, 255])
 
@@ -66,18 +68,21 @@ class CTEEstimator:
         self, frame_bgr: np.ndarray
     ) -> Tuple[float, float, Optional[np.ndarray]]:
         """估算 CTE，返回 (cte, confidence, mask)"""
-        if self.method == "edge_detection":
-            return self._by_edges(frame_bgr)
+        if self.method == "canny_edges":
+            return self._by_canny(frame_bgr)
+        elif self.method == "color_edge_detection":
+            return self._by_color_edges(frame_bgr)
         elif self.method == "centerline_tracking":
             return self._by_centerline(frame_bgr)
-        elif self.method == "canny_edges":
-            return self._by_canny(frame_bgr)
+        elif self.method == "edge_detection":
+            # Backward compatibility: map to color_edge_detection
+            return self._by_color_edges(frame_bgr)
         return 0.0, 0.0, None
 
-    def _by_edges(
+    def _by_color_edges(
         self, frame_bgr: np.ndarray
     ) -> Tuple[float, float, Optional[np.ndarray]]:
-        """通过颜色检测边缘"""
+        """通过HSV颜色检测边缘"""
         h, w = frame_bgr.shape[:2]
         roi = frame_bgr[int(h * 0.6) :, :]  # 下 40%
 
@@ -347,7 +352,7 @@ class CTETuner:
 
     def _update_estimator_thresholds(self):
         """更新估算器阈值"""
-        if self.estimator.method == "edge_detection":
+        if self.estimator.method == "color_edge_detection" or self.estimator.method == "edge_detection":
             self.estimator.set_edge_thresholds(
                 self.h_low, self.h_high, self.s_low, self.s_high, self.v_low, self.v_high
             )
@@ -399,10 +404,10 @@ class CTETuner:
 CTE_CONFIG = {{
     "method": "{self.estimator.method}",
     "max_cte": {self.estimator.max_cte},
-    # 边缘检测阈值 (HSV)
+    # 颜色边缘检测阈值 (HSV) - for color_edge_detection method
     "track_lower": {tuple(self.estimator.edge_lower.tolist())},
     "track_upper": {tuple(self.estimator.edge_upper.tolist())},
-    # 中心线检测阈值 (HSV)
+    # 中心线检测阈值 (HSV) - for centerline_tracking method
     "centerline_lower": {tuple(self.estimator.centerline_lower.tolist())},
     "centerline_upper": {tuple(self.estimator.centerline_upper.tolist())},
 }}
@@ -431,9 +436,9 @@ CTE_CONFIG = {{
         print("\n按键说明:")
         print("  q/ESC: 退出")
         print("  s: 保存/导出当前配置")
-        print("  1: 边缘检测模式 (edge_detection)")
-        print("  2: 中心线追踪模式 (centerline_tracking)")
-        print("  3: Canny 边缘检测模式")
+        print("  1: Canny边缘检测模式 (canny_edges)")
+        print("  2: 颜色边缘检测模式 (color_edge_detection)")
+        print("  3: 中心线追踪模式 (centerline_tracking)")
         print("  n: 下一张图片")
         print("  p: 上一张图片")
         print("  w: 加载白色预设")
@@ -517,16 +522,16 @@ CTE_CONFIG = {{
             elif key == ord("s"):
                 self.export_config()
             elif key == ord("1"):
-                self.estimator.method = "edge_detection"
-                print("切换到: edge_detection")
-                self._load_preset("white")
+                self.estimator.method = "canny_edges"
+                print("切换到: canny_edges")
             elif key == ord("2"):
+                self.estimator.method = "color_edge_detection"
+                print("切换到: color_edge_detection")
+                self._load_preset("white")
+            elif key == ord("3"):
                 self.estimator.method = "centerline_tracking"
                 print("切换到: centerline_tracking")
                 self._load_preset("orange")
-            elif key == ord("3"):
-                self.estimator.method = "canny_edges"
-                print("切换到: canny_edges")
             elif key == ord("n"):
                 self.next_image()
             elif key == ord("p"):

@@ -15,7 +15,7 @@ Usage:
     from real_car_env import RealJetRacerEnv
     
     env = RealJetRacerEnv(
-        cte_estimator="edge_detection",  # or "centerline_tracking"
+        cte_estimator="canny_edges",  # or "color_edge_detection" or "centerline_tracking"
         max_cte=1.0,
     )
     obs = env.reset()
@@ -45,28 +45,31 @@ class VisualCTEEstimator:
     
     def __init__(
         self,
-        method: str = "edge_detection",
+        method: str = "canny_edges",
         image_width: int = 320,
         image_height: int = 240,
         max_cte: float = 3.0,
-        # Color thresholds for track detection (HSV)
-        track_lower: Tuple[int, int, int] = (0, 100, 100),
-        track_upper: Tuple[int, int, int] = (180, 255, 255),
-        # Color thresholds for centerline detection (HSV)
+        # Color thresholds for track edge detection (HSV) - for "color_edge_detection" method
+        track_lower: Tuple[int, int, int] = (0, 0, 200),
+        track_upper: Tuple[int, int, int] = (180, 30, 255),
+        # Color thresholds for centerline detection (HSV) - for "centerline_tracking" method
         centerline_lower: Tuple[int, int, int] = (10, 100, 100),
         centerline_upper: Tuple[int, int, int] = (25, 255, 255),
     ):
         """Initialize the CTE estimator.
         
         Args:
-            method: Estimation method ("edge_detection" or "centerline_tracking")
+            method: Estimation method:
+                - "canny_edges": Canny edge detection (default)
+                - "color_edge_detection": HSV color-based edge detection
+                - "centerline_tracking": HSV color-based centerline tracking
             image_width: Expected image width
             image_height: Expected image height
             max_cte: Maximum CTE value (for normalization)
-            track_lower: HSV lower bound for track color
-            track_upper: HSV upper bound for track color
-            centerline_lower: HSV lower bound for centerline color
-            centerline_upper: HSV upper bound for centerline color
+            track_lower: HSV lower bound for track edge color (for color_edge_detection)
+            track_upper: HSV upper bound for track edge color (for color_edge_detection)
+            centerline_lower: HSV lower bound for centerline color (for centerline_tracking)
+            centerline_upper: HSV upper bound for centerline color (for centerline_tracking)
         """
         self.method = method
         self.image_width = image_width
@@ -94,20 +97,25 @@ class VisualCTEEstimator:
             - cte: Cross-track error (positive = right of center)
             - confidence: Detection confidence (0.0 to 1.0)
         """
-        if self.method == "edge_detection":
-            return self._estimate_by_edges(frame_bgr)
+        if self.method == "canny_edges":
+            return self._estimate_by_canny(frame_bgr)
+        elif self.method == "color_edge_detection":
+            return self._estimate_by_color_edges(frame_bgr)
         elif self.method == "centerline_tracking":
             return self._estimate_by_centerline(frame_bgr)
+        elif self.method == "edge_detection":
+            # Backward compatibility: map to canny_edges
+            return self._estimate_by_canny(frame_bgr)
         else:
             # Unknown method, set mask to None
             self.last_mask_image = None
             return 0.0, 0.0
     
-    def _estimate_by_edges(self, frame_bgr: np.ndarray) -> Tuple[float, float]:
-        """Estimate CTE by detecting track edges.
+    def _estimate_by_canny(self, frame_bgr: np.ndarray) -> Tuple[float, float]:
+        """Estimate CTE using Canny edge detection.
         
-        Detects left and right track boundaries, computes their midpoint,
-        and returns the offset from image center as CTE.
+        Detects left and right track boundaries using Canny edges,
+        computes their midpoint, and returns the offset from image center as CTE.
         """
         h, w = frame_bgr.shape[:2]
         
@@ -155,6 +163,59 @@ class VisualCTEEstimator:
         cv2.line(self.last_debug_image, (left_edge, scan_row), (left_edge, scan_row - 20), (0, 255, 0), 2)
         cv2.line(self.last_debug_image, (right_edge, scan_row), (right_edge, scan_row - 20), (0, 255, 0), 2)
         cv2.line(self.last_debug_image, (lane_center, scan_row), (lane_center, scan_row - 30), (0, 0, 255), 2)
+        
+        return float(cte), float(confidence)
+    
+    def _estimate_by_color_edges(self, frame_bgr: np.ndarray) -> Tuple[float, float]:
+        """Estimate CTE by detecting track edges using HSV color thresholds.
+        
+        Detects left and right track boundaries by color (e.g., white lines),
+        computes their midpoint, and returns the offset from image center as CTE.
+        """
+        h, w = frame_bgr.shape[:2]
+        
+        # Take lower portion of image (near the car)
+        roi_start = int(h * 0.6)
+        roi = frame_bgr[roi_start:, :]
+        
+        # Convert to HSV and detect edge color
+        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, self.track_lower, self.track_upper)
+        
+        # Store mask for visualization
+        self.last_mask_image = mask.copy()
+        
+        # Find edge points in bottom rows
+        scan_row = max(0, mask.shape[0] - 10)
+        edge_pixels = np.where(mask[scan_row, :] > 0)[0]
+        
+        if len(edge_pixels) < 2:
+            # Not enough edges detected
+            self.last_debug_image = roi.copy()
+            return 0.0, 0.0
+        
+        # Assume leftmost and rightmost edges are track boundaries
+        left_edge = edge_pixels[0]
+        right_edge = edge_pixels[-1]
+        
+        # Compute lane center
+        lane_center = (left_edge + right_edge) // 2
+        
+        # Compute CTE (normalized)
+        pixel_offset = lane_center - (w // 2)
+        cte = (pixel_offset / (w / 2)) * self.max_cte
+        
+        # Confidence based on edge separation
+        edge_width = right_edge - left_edge
+        expected_width = w * 0.4  # Expect track to be ~40% of image width
+        confidence = min(1.0, edge_width / expected_width)
+        
+        # Debug visualization
+        self.last_debug_image = roi.copy()
+        cv2.circle(self.last_debug_image, (left_edge, scan_row), 5, (0, 255, 0), -1)
+        cv2.circle(self.last_debug_image, (right_edge, scan_row), 5, (0, 255, 0), -1)
+        cv2.circle(self.last_debug_image, (lane_center, scan_row), 8, (0, 0, 255), -1)
+        cv2.line(self.last_debug_image, (w // 2, 0), (w // 2, roi.shape[0]), (255, 255, 0), 2)
         
         return float(cte), float(confidence)
     
@@ -233,7 +294,7 @@ class RealJetRacerEnv(gym.Env):
         obs_height: int = 84,
         obs_mode: str = "perspective",
         # CTE estimation
-        cte_estimator: str = "edge_detection",
+        cte_estimator: str = "canny_edges",
         max_cte: float = 3.0,
         # Actuator settings
         throttle_gain: float = 0.5,
@@ -262,7 +323,7 @@ class RealJetRacerEnv(gym.Env):
             obs_width: Observation width for policy
             obs_height: Observation height for policy
             obs_mode: Observation mode ("raw", "perspective", "mix", "mask")
-            cte_estimator: CTE estimation method ("edge_detection" or "centerline_tracking")
+            cte_estimator: CTE estimation method ("canny_edges", "color_edge_detection", or "centerline_tracking")
             max_cte: Maximum CTE before episode termination
             throttle_gain: Throttle scaling factor
             steering_gain: Steering scaling factor
@@ -635,8 +696,8 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser()
     parser.add_argument("--test", action="store_true", help="Test mode (no training)")
-    parser.add_argument("--cte-method", type=str, default="edge_detection",
-                        choices=["edge_detection", "centerline_tracking"])
+    parser.add_argument("--cte-method", type=str, default="canny_edges",
+                        choices=["canny_edges", "color_edge_detection", "centerline_tracking", "edge_detection"])
     parser.add_argument("--obs-mode", type=str, default="mix",
                         choices=["raw", "perspective", "mix", "mask"])
     args = parser.parse_args()
