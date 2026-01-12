@@ -20,3 +20,5 @@ viz_out
 .vscode
 
 onnx_models
+
+.ipynb_checkpoints
