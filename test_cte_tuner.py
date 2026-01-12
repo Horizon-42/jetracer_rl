@@ -37,32 +37,46 @@ import numpy as np
 
 
 class CTEEstimator:
-    """CTE 估算器"""
+    """CTE 估算器（用于调参工具）
+    
+    注意：centerline_tracking 现在使用和 color_edge_detection 相同的 HSV 阈值，
+    但计算整个颜色区域的中心点而不是边缘。
+    """
 
     def __init__(self, method: str = "canny_edges", max_cte: float = 3.0):
         self.method = method
         self.max_cte = max_cte
         self.last_debug_image: Optional[np.ndarray] = None
 
-        # 默认阈值
-        # For color_edge_detection method (HSV-based edge detection)
-        self.edge_lower = np.array([0, 0, 200])  # 白色边线
-        self.edge_upper = np.array([180, 30, 255])
-        # For centerline_tracking method (HSV-based centerline detection)
-        self.centerline_lower = np.array([10, 100, 100])  # 橙/黄色中心线
-        self.centerline_upper = np.array([25, 255, 255])
+        # 默认阈值（用于 color_edge_detection 和 centerline_tracking）
+        self.track_lower = np.array([0, 0, 200])  # 白色边线
+        self.track_upper = np.array([180, 30, 255])
+        
+        # 为了向后兼容，保留 edge_lower/upper 和 centerline_lower/upper
+        # 但它们现在指向相同的值
+        self.edge_lower = self.track_lower
+        self.edge_upper = self.track_upper
+        self.centerline_lower = self.track_lower
+        self.centerline_upper = self.track_upper
 
     def set_edge_thresholds(
         self, h_low: int, h_high: int, s_low: int, s_high: int, v_low: int, v_high: int
     ):
-        self.edge_lower = np.array([h_low, s_low, v_low])
-        self.edge_upper = np.array([h_high, s_high, v_high])
+        """设置 HSV 阈值（同时用于 color_edge_detection 和 centerline_tracking）"""
+        self.track_lower = np.array([h_low, s_low, v_low])
+        self.track_upper = np.array([h_high, s_high, v_high])
+        # 保持向后兼容
+        self.edge_lower = self.track_lower
+        self.edge_upper = self.track_upper
+        self.centerline_lower = self.track_lower
+        self.centerline_upper = self.track_upper
 
     def set_centerline_thresholds(
         self, h_low: int, h_high: int, s_low: int, s_high: int, v_low: int, v_high: int
     ):
-        self.centerline_lower = np.array([h_low, s_low, v_low])
-        self.centerline_upper = np.array([h_high, s_high, v_high])
+        """设置中心线阈值（现在和边缘检测使用相同的阈值）"""
+        # 现在 centerline_tracking 使用和 color_edge_detection 相同的阈值
+        self.set_edge_thresholds(h_low, h_high, s_low, s_high, v_low, v_high)
 
     def estimate(
         self, frame_bgr: np.ndarray
@@ -87,7 +101,7 @@ class CTEEstimator:
         roi = frame_bgr[int(h * 0.6) :, :]  # 下 40%
 
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, self.edge_lower, self.edge_upper)
+        mask = cv2.inRange(hsv, self.track_lower, self.track_upper)
 
         scan_row = max(0, mask.shape[0] - 10)
         edge_pixels = np.where(mask[scan_row, :] > 0)[0]
@@ -141,12 +155,16 @@ class CTEEstimator:
     def _by_centerline(
         self, frame_bgr: np.ndarray
     ) -> Tuple[float, float, Optional[np.ndarray]]:
-        """追踪彩色中心线"""
+        """追踪彩色中心线
+        
+        使用和 color_edge_detection 相同的 HSV 阈值，但计算整个颜色区域的中心点
+        """
         h, w = frame_bgr.shape[:2]
         roi = frame_bgr[int(h * 0.5) :, :]
 
+        # 使用和 color_edge_detection 相同的 HSV 阈值
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, self.centerline_lower, self.centerline_upper)
+        mask = cv2.inRange(hsv, self.track_lower, self.track_upper)
 
         moments = cv2.moments(mask)
         debug_img = roi.copy()
@@ -352,12 +370,9 @@ class CTETuner:
 
     def _update_estimator_thresholds(self):
         """更新估算器阈值"""
-        if self.estimator.method == "color_edge_detection" or self.estimator.method == "edge_detection":
+        # color_edge_detection 和 centerline_tracking 现在使用相同的阈值
+        if self.estimator.method in ["color_edge_detection", "centerline_tracking", "edge_detection"]:
             self.estimator.set_edge_thresholds(
-                self.h_low, self.h_high, self.s_low, self.s_high, self.v_low, self.v_high
-            )
-        elif self.estimator.method == "centerline_tracking":
-            self.estimator.set_centerline_thresholds(
                 self.h_low, self.h_high, self.s_low, self.s_high, self.v_low, self.v_high
             )
 
@@ -404,12 +419,10 @@ class CTETuner:
 CTE_CONFIG = {{
     "method": "{self.estimator.method}",
     "max_cte": {self.estimator.max_cte},
-    # 颜色边缘检测阈值 (HSV) - for color_edge_detection method
-    "track_lower": {tuple(self.estimator.edge_lower.tolist())},
-    "track_upper": {tuple(self.estimator.edge_upper.tolist())},
-    # 中心线检测阈值 (HSV) - for centerline_tracking method
-    "centerline_lower": {tuple(self.estimator.centerline_lower.tolist())},
-    "centerline_upper": {tuple(self.estimator.centerline_upper.tolist())},
+    # HSV 阈值 - 用于 color_edge_detection 和 centerline_tracking
+    # (centerline_tracking 现在使用和 color_edge_detection 相同的阈值)
+    "track_lower": {tuple(self.estimator.track_lower.tolist())},
+    "track_upper": {tuple(self.estimator.track_upper.tolist())},
 }}
 
 # 用于 real_car_env.py:
