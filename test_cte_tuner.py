@@ -54,8 +54,8 @@ class CTEEstimator:
             image_width=320,  # 默认值，实际会从图像获取
             image_height=240,
             max_cte=max_cte,
-            track_lower=(0, 0, 200),
-            track_upper=(180, 30, 255),
+            track_lower=(0, 100, 100),
+            track_upper=(180, 255, 255),
         )
         self.method = method
         self.max_cte = max_cte
