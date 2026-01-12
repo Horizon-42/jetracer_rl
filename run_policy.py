@@ -82,13 +82,13 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--mask-hsv-lower",
         type=str,
-        default="10,100,100",
+        default="0,0,0",
         help="HSV lower bound for mask extraction (comma-separated, e.g. '10,100,100'). Only used when obs-mode=mask. Should match training.",
     )
     p.add_argument(
         "--mask-hsv-upper",
         type=str,
-        default="25,255,255",
+        default="180,50,80",
         help="HSV upper bound for mask extraction (comma-separated, e.g. '25,255,255'). Only used when obs-mode=mask. Should match training.",
     )
 
