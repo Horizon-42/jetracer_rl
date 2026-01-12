@@ -35,37 +35,51 @@ from typing import List, Optional, Tuple
 import cv2
 import numpy as np
 
+from cte_estimator import VisualCTEEstimator
 
+
+# 使用统一的 VisualCTEEstimator，添加返回 mask 的包装方法
 class CTEEstimator:
     """CTE 估算器（用于调参工具）
     
+    包装 VisualCTEEstimator，提供返回 mask 的接口以兼容调参工具。
     注意：centerline_tracking 现在使用和 color_edge_detection 相同的 HSV 阈值，
     但计算整个颜色区域的中心点而不是边缘。
     """
 
     def __init__(self, method: str = "canny_edges", max_cte: float = 3.0):
+        # 使用统一的 VisualCTEEstimator
+        self._estimator = VisualCTEEstimator(
+            method=method,
+            image_width=320,  # 默认值，实际会从图像获取
+            image_height=240,
+            max_cte=max_cte,
+            track_lower=(0, 0, 200),
+            track_upper=(180, 30, 255),
+        )
         self.method = method
         self.max_cte = max_cte
-        self.last_debug_image: Optional[np.ndarray] = None
-
-        # 默认阈值（用于 color_edge_detection 和 centerline_tracking）
-        self.track_lower = np.array([0, 0, 200])  # 白色边线
-        self.track_upper = np.array([180, 30, 255])
         
-        # 为了向后兼容，保留 edge_lower/upper 和 centerline_lower/upper
-        # 但它们现在指向相同的值
+        # 为了向后兼容，保留这些属性
+        self.track_lower = self._estimator.track_lower.copy()
+        self.track_upper = self._estimator.track_upper.copy()
         self.edge_lower = self.track_lower
         self.edge_upper = self.track_upper
         self.centerline_lower = self.track_lower
         self.centerline_upper = self.track_upper
+        
+        # debug_image 和 last_debug_image 都指向同一个
+        self.last_debug_image = None
 
     def set_edge_thresholds(
         self, h_low: int, h_high: int, s_low: int, s_high: int, v_low: int, v_high: int
     ):
         """设置 HSV 阈值（同时用于 color_edge_detection 和 centerline_tracking）"""
-        self.track_lower = np.array([h_low, s_low, v_low])
-        self.track_upper = np.array([h_high, s_high, v_high])
+        self._estimator.track_lower = np.array([h_low, s_low, v_low])
+        self._estimator.track_upper = np.array([h_high, s_high, v_high])
         # 保持向后兼容
+        self.track_lower = self._estimator.track_lower.copy()
+        self.track_upper = self._estimator.track_upper.copy()
         self.edge_lower = self.track_lower
         self.edge_upper = self.track_upper
         self.centerline_lower = self.track_lower
@@ -82,184 +96,21 @@ class CTEEstimator:
         self, frame_bgr: np.ndarray
     ) -> Tuple[float, float, Optional[np.ndarray]]:
         """估算 CTE，返回 (cte, confidence, mask)"""
-        if self.method == "canny_edges":
-            return self._by_canny(frame_bgr)
-        elif self.method == "color_edge_detection":
-            return self._by_color_edges(frame_bgr)
-        elif self.method == "centerline_tracking":
-            return self._by_centerline(frame_bgr)
-        elif self.method == "edge_detection":
-            # Backward compatibility: map to color_edge_detection
-            return self._by_color_edges(frame_bgr)
-        return 0.0, 0.0, None
-
-    def _by_color_edges(
-        self, frame_bgr: np.ndarray
-    ) -> Tuple[float, float, Optional[np.ndarray]]:
-        """通过HSV颜色检测边缘"""
+        # 更新图像尺寸和方法
         h, w = frame_bgr.shape[:2]
-        roi = frame_bgr[int(h * 0.6) :, :]  # 下 40%
-
-        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, self.track_lower, self.track_upper)
-
-        scan_row = max(0, mask.shape[0] - 10)
-        edge_pixels = np.where(mask[scan_row, :] > 0)[0]
-
-        debug_img = roi.copy()
-        cv2.line(debug_img, (0, scan_row), (w, scan_row), (255, 0, 0), 1)
-
-        if len(edge_pixels) < 2:
-            cv2.putText(
-                debug_img,
-                "No edges",
-                (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (0, 0, 255),
-                2,
-            )
-            self.last_debug_image = debug_img
-            return 0.0, 0.0, mask
-
-        left, right = edge_pixels[0], edge_pixels[-1]
-        lane_center = (left + right) // 2
-        img_center = w // 2
-
-        cte = ((lane_center - img_center) / (w / 2)) * self.max_cte
-        confidence = min(1.0, (right - left) / (w * 0.4))
-
-        cv2.circle(debug_img, (left, scan_row), 5, (0, 255, 0), -1)
-        cv2.circle(debug_img, (right, scan_row), 5, (0, 255, 0), -1)
-        cv2.circle(debug_img, (lane_center, scan_row), 8, (0, 0, 255), -1)
-        cv2.line(
-            debug_img,
-            (img_center, 0),
-            (img_center, debug_img.shape[0]),
-            (255, 255, 0),
-            2,
-        )
-        cv2.putText(
-            debug_img,
-            f"CTE: {cte:.2f}",
-            (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 255),
-            2,
-        )
-
-        self.last_debug_image = debug_img
-        return float(cte), float(confidence), mask
-
-    def _by_centerline(
-        self, frame_bgr: np.ndarray
-    ) -> Tuple[float, float, Optional[np.ndarray]]:
-        """追踪彩色中心线
+        self._estimator.image_width = w
+        self._estimator.image_height = h
+        self._estimator.image_center = w // 2
+        self._estimator.method = self.method
         
-        使用和 color_edge_detection 相同的 HSV 阈值，但计算整个颜色区域的中心点
-        """
-        h, w = frame_bgr.shape[:2]
-        roi = frame_bgr[int(h * 0.5) :, :]
-
-        # 使用和 color_edge_detection 相同的 HSV 阈值
-        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, self.track_lower, self.track_upper)
-
-        moments = cv2.moments(mask)
-        debug_img = roi.copy()
-        img_center = w // 2
-        cv2.line(
-            debug_img, (img_center, 0), (img_center, debug_img.shape[0]), (255, 255, 0), 2
-        )
-
-        if moments["m00"] < 100:
-            cv2.putText(
-                debug_img,
-                "No centerline",
-                (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (0, 0, 255),
-                2,
-            )
-            self.last_debug_image = debug_img
-            return 0.0, 0.0, mask
-
-        cx = int(moments["m10"] / moments["m00"])
-        cy = int(moments["m01"] / moments["m00"])
-
-        cte = ((cx - img_center) / (w / 2)) * self.max_cte
-        confidence = min(1.0, moments["m00"] / (w * roi.shape[0] * 0.03))
-
-        cv2.circle(debug_img, (cx, cy), 10, (0, 0, 255), -1)
-        cv2.putText(
-            debug_img,
-            f"CTE: {cte:.2f}",
-            (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 255),
-            2,
-        )
-
-        self.last_debug_image = debug_img
+        # 调用统一的估计器
+        cte, confidence = self._estimator.estimate(frame_bgr)
+        
+        # 获取 mask 和 debug image
+        mask = self._estimator.last_mask_image
+        self.last_debug_image = self._estimator.last_debug_image
+        
         return float(cte), float(confidence), mask
-
-    def _by_canny(
-        self, frame_bgr: np.ndarray
-    ) -> Tuple[float, float, Optional[np.ndarray]]:
-        """使用 Canny 边缘检测"""
-        h, w = frame_bgr.shape[:2]
-        roi = frame_bgr[int(h * 0.6) :, :]
-
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150)
-
-        scan_row = max(0, edges.shape[0] - 10)
-        edge_pixels = np.where(edges[scan_row, :] > 0)[0]
-
-        debug_img = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
-        img_center = w // 2
-        cv2.line(
-            debug_img, (img_center, 0), (img_center, debug_img.shape[0]), (255, 255, 0), 2
-        )
-
-        if len(edge_pixels) < 2:
-            cv2.putText(
-                debug_img,
-                "No edges",
-                (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (0, 0, 255),
-                2,
-            )
-            self.last_debug_image = debug_img
-            return 0.0, 0.0, edges
-
-        left, right = edge_pixels[0], edge_pixels[-1]
-        lane_center = (left + right) // 2
-
-        cte = ((lane_center - img_center) / (w / 2)) * self.max_cte
-        confidence = min(1.0, (right - left) / (w * 0.4))
-
-        cv2.circle(debug_img, (left, scan_row), 5, (0, 255, 0), -1)
-        cv2.circle(debug_img, (right, scan_row), 5, (0, 255, 0), -1)
-        cv2.circle(debug_img, (lane_center, scan_row), 8, (0, 0, 255), -1)
-        cv2.putText(
-            debug_img,
-            f"CTE: {cte:.2f}",
-            (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 255),
-            2,
-        )
-
-        self.last_debug_image = debug_img
-        return float(cte), float(confidence), edges
 
 
 class CTETuner:
