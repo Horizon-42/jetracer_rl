@@ -272,13 +272,14 @@ class CTETuner:
         self.current_image_idx: int = 0
         self.camera = None
 
-        # HSV 参数
-        self.h_low = 0
-        self.h_high = 180
-        self.s_low = 0
-        self.s_high = 30
-        self.v_low = 200
-        self.v_high = 255
+        # HSV 参数（统一用于 color_edge_detection 和 centerline_tracking）
+        # 初始值从 estimator 的默认值同步
+        self.h_low = int(self.estimator.track_lower[0])
+        self.h_high = int(self.estimator.track_upper[0])
+        self.s_low = int(self.estimator.track_lower[1])
+        self.s_high = int(self.estimator.track_upper[1])
+        self.v_low = int(self.estimator.track_lower[2])
+        self.v_high = int(self.estimator.track_upper[2])
 
         # 窗口名称
         self.win_main = "CTE Tuner"
@@ -445,6 +446,9 @@ CTE_CONFIG = {{
         cv2.namedWindow(self.win_main, cv2.WINDOW_NORMAL)
         cv2.namedWindow(self.win_mask, cv2.WINDOW_NORMAL)
         self._create_trackbars()
+        
+        # 初始化时同步 trackbar 值到 estimator
+        self._update_estimator_thresholds()
 
         print("\n按键说明:")
         print("  q/ESC: 退出")
@@ -452,6 +456,7 @@ CTE_CONFIG = {{
         print("  1: Canny边缘检测模式 (canny_edges)")
         print("  2: 颜色边缘检测模式 (color_edge_detection)")
         print("  3: 中心线追踪模式 (centerline_tracking)")
+        print("    注意: centerline_tracking 使用和 color_edge_detection 相同的 HSV 阈值")
         print("  n: 下一张图片")
         print("  p: 上一张图片")
         print("  w: 加载白色预设")
@@ -467,7 +472,9 @@ CTE_CONFIG = {{
 
             # 读取滑块值并更新估算器
             self._read_trackbars()
-            self._update_estimator_thresholds()
+            # 只有 color_edge_detection 和 centerline_tracking 需要 HSV 参数
+            if self.estimator.method in ["color_edge_detection", "centerline_tracking", "edge_detection"]:
+                self._update_estimator_thresholds()
 
             # 估算 CTE
             cte, confidence, mask = self.estimator.estimate(frame)
@@ -537,14 +544,18 @@ CTE_CONFIG = {{
             elif key == ord("1"):
                 self.estimator.method = "canny_edges"
                 print("切换到: canny_edges")
+                # Canny 方法不需要 HSV 参数
             elif key == ord("2"):
                 self.estimator.method = "color_edge_detection"
                 print("切换到: color_edge_detection")
-                self._load_preset("white")
+                # 同步当前 trackbar 值到 estimator（不自动加载预设）
+                self._update_estimator_thresholds()
             elif key == ord("3"):
                 self.estimator.method = "centerline_tracking"
                 print("切换到: centerline_tracking")
-                self._load_preset("orange")
+                # centerline_tracking 使用和 color_edge_detection 相同的 HSV 阈值
+                # 同步当前 trackbar 值到 estimator（不自动加载预设）
+                self._update_estimator_thresholds()
             elif key == ord("n"):
                 self.next_image()
             elif key == ord("p"):
