@@ -240,6 +240,9 @@ class RealJetRacerEnv(gym.Env):
         # Safety
         emergency_stop_cte: float = 2.5,
         render_mode: Optional[str] = None,
+        # Mask mode HSV thresholds (for obs_mode="mask")
+        mask_hsv_lower: Tuple[int, int, int] = (0, 0, 0),
+        mask_hsv_upper: Tuple[int, int, int] = (180, 50, 80),
     ):
         """Initialize the real car environment.
         
@@ -249,7 +252,7 @@ class RealJetRacerEnv(gym.Env):
             cam_height: Camera capture height
             obs_width: Observation width for policy
             obs_height: Observation height for policy
-            obs_mode: Observation mode ("raw", "perspective", "mix")
+            obs_mode: Observation mode ("raw", "perspective", "mix", "mask")
             cte_estimator: CTE estimation method ("edge_detection" or "centerline_tracking")
             max_cte: Maximum CTE before episode termination
             throttle_gain: Throttle scaling factor
@@ -262,6 +265,8 @@ class RealJetRacerEnv(gym.Env):
             offtrack_penalty: Penalty for going off-track
             emergency_stop_cte: CTE threshold for emergency stop
             render_mode: Rendering mode
+            mask_hsv_lower: HSV lower bound for mask extraction (for obs_mode="mask")
+            mask_hsv_upper: HSV upper bound for mask extraction (for obs_mode="mask")
         """
         super().__init__()
         
@@ -284,6 +289,10 @@ class RealJetRacerEnv(gym.Env):
         self.w_speed = w_speed
         self.alive_bonus = alive_bonus
         self.offtrack_penalty = offtrack_penalty
+        
+        # Mask mode HSV thresholds
+        self.mask_hsv_lower = np.array(mask_hsv_lower, dtype=np.uint8)
+        self.mask_hsv_upper = np.array(mask_hsv_upper, dtype=np.uint8)
         
         # Initialize CTE estimator
         self.cte_estimator = VisualCTEEstimator(
@@ -402,6 +411,17 @@ class RealJetRacerEnv(gym.Env):
                 borderValue=(0, 0, 0),
             )
             to_resize = np.vstack([raw_resized, transformed])
+        elif self.obs_mode == "mask":
+            # Extract HSV mask from image
+            hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+            mask = cv2.inRange(hsv, self.mask_hsv_lower, self.mask_hsv_upper)
+            # Resize mask to observation size
+            mask_resized = cv2.resize(mask, (self.obs_width, self.obs_height), interpolation=cv2.INTER_AREA)
+            # Stack single channel to 3 channels (for CNN policy compatibility)
+            mask_3ch = np.stack([mask_resized, mask_resized, mask_resized], axis=0)
+            # Convert to float32 [0, 1]
+            obs = mask_3ch.astype(np.float32) / 255.0
+            return obs
         else:
             to_resize = frame_bgr
         
@@ -606,7 +626,7 @@ if __name__ == "__main__":
     parser.add_argument("--cte-method", type=str, default="edge_detection",
                         choices=["edge_detection", "centerline_tracking"])
     parser.add_argument("--obs-mode", type=str, default="mix",
-                        choices=["raw", "perspective", "mix"])
+                        choices=["raw", "perspective", "mix", "mask"])
     args = parser.parse_args()
     
     env = RealJetRacerEnv(

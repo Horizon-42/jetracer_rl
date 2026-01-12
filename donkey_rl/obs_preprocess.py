@@ -13,7 +13,7 @@ where similar transformations are applied to camera frames.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Tuple
 
 import cv2
 import gymnasium as gym
@@ -163,6 +163,7 @@ class ObsPreprocess(gym.ObservationWrapper):
     - "raw": Use only the raw camera image (default when perspective_transform=False)
     - "perspective": Use only the perspective-transformed image
     - "mix": Stack raw + perspective images vertically, then resize to target dimensions
+    - "mask": Extract binary mask using HSV color thresholds (for track segmentation)
 
     Debug caches (for DebugObsDumpCallback):
     - last_raw_observation: Raw simulator frame (HWC uint8)
@@ -189,6 +190,9 @@ class ObsPreprocess(gym.ObservationWrapper):
         aug_contrast: float = 0.25,
         aug_noise_std: float = 0.02,
         aug_color_jitter: float = 0.2,
+        # Mask mode HSV thresholds
+        mask_hsv_lower: Tuple[int, int, int] = (0, 0, 0),
+        mask_hsv_upper: Tuple[int, int, int] = (180, 50, 80),
     ):
         """Initialize the observation preprocessing wrapper.
 
@@ -203,6 +207,7 @@ class ObsPreprocess(gym.ObservationWrapper):
                 - "raw": Use only raw camera image
                 - "perspective": Use only perspective-transformed image
                 - "mix": Stack raw + perspective vertically, resize to target dimensions
+                - "mask": Extract binary mask using HSV thresholds
             domain_rand: If True, apply domain randomization augmentations.
                          Default: False.
             aug_brightness: Brightness augmentation range (applied if domain_rand=True).
@@ -213,6 +218,10 @@ class ObsPreprocess(gym.ObservationWrapper):
                            Default: 0.02.
             aug_color_jitter: Color jitter strength in HSV space (applied if domain_rand=True).
                               Default: 0.2.
+            mask_hsv_lower: HSV lower bound for mask extraction (for obs_mode="mask").
+                            Default: (0, 0, 0).
+            mask_hsv_upper: HSV upper bound for mask extraction (for obs_mode="mask").
+                            Default: (180, 50, 80).
 
         Raises:
             AssertionError: If input observation is not RGB (3 channels).
@@ -232,10 +241,14 @@ class ObsPreprocess(gym.ObservationWrapper):
         if obs_mode == "auto":
             # Backward compatibility: use perspective_transform flag
             self._obs_mode = "perspective" if perspective_transform else "raw"
-        elif obs_mode in ("raw", "perspective", "mix"):
+        elif obs_mode in ("raw", "perspective", "mix", "mask"):
             self._obs_mode = obs_mode
         else:
-            raise ValueError(f"Unknown obs_mode: {obs_mode}. Supported modes: raw, perspective, mix, auto")
+            raise ValueError(f"Unknown obs_mode: {obs_mode}. Supported modes: raw, perspective, mix, mask, auto")
+        
+        # Mask mode HSV thresholds
+        self._mask_hsv_lower = np.array(mask_hsv_lower, dtype=np.uint8)
+        self._mask_hsv_upper = np.array(mask_hsv_upper, dtype=np.uint8)
 
         # Update observation space to CHW format (channels-first)
         self.observation_space = gym.spaces.Box(
@@ -328,6 +341,23 @@ class ObsPreprocess(gym.ObservationWrapper):
                                         interpolation=cv2.INTER_AREA)
             # Stack vertically: [raw on top, perspective on bottom]
             to_resize = np.vstack([raw_resized_w, transformed])
+        elif self._obs_mode == "mask":
+            # Extract binary mask using HSV thresholds
+            # Convert RGB to HSV (OpenCV uses BGR internally but we have RGB from sim)
+            hsv = cv2.cvtColor(raw, cv2.COLOR_RGB2HSV)
+            mask = cv2.inRange(hsv, self._mask_hsv_lower, self._mask_hsv_upper)
+            # Resize mask to target dimensions
+            mask_resized = cv2.resize(mask, (self._width, self._height), interpolation=cv2.INTER_AREA)
+            # Stack single channel to 3 channels (for CNN policy compatibility)
+            mask_3ch = np.stack([mask_resized, mask_resized, mask_resized], axis=2)
+            # Cache for debugging
+            try:
+                self.last_resized_observation = mask_3ch.copy()
+            except Exception:
+                self.last_resized_observation = None
+            # Convert to CHW float32 [0, 1] and return early
+            chw = mask_3ch.transpose(2, 0, 1).astype(np.float32) / 255.0
+            return chw
         else:
             # Fallback to raw
             to_resize = raw

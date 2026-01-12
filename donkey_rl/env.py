@@ -6,7 +6,7 @@ through Gymnasium+Shimmy, with support for various reward types and wrappers.
 
 from __future__ import annotations
 
-from typing import Callable, Dict
+from typing import Callable, Dict, Tuple
 
 import gymnasium as gym
 
@@ -279,6 +279,9 @@ def build_env_fn(
     stall_max_steps: int = 50,
     stall_penalty: float = 20.0,
     car_name: str = "JetRacerAgent",
+    # Mask mode HSV thresholds
+    mask_hsv_lower: Tuple[int, int, int] = (0, 0, 0),
+    mask_hsv_upper: Tuple[int, int, int] = (180, 50, 80),
 ) -> Callable[[], gym.Env]:
     """Build a factory function that creates fully configured DonkeyCar environments.
 
@@ -321,7 +324,7 @@ def build_env_fn(
         obs_height: Output observation height in pixels.
         domain_rand: If True, apply domain randomization (brightness, contrast, noise, color jitter).
         perspective_transform: If True, apply perspective transformation to camera view (deprecated, use obs_mode).
-        obs_mode: Observation mode ('auto', 'raw', 'perspective', 'mix'). 'mix' stacks raw+perspective vertically.
+        obs_mode: Observation mode ('auto', 'raw', 'perspective', 'mix', 'mask'). 'mix' stacks raw+perspective vertically. 'mask' extracts binary mask using HSV thresholds.
         aug_brightness: Brightness augmentation range (applied if domain_rand=True).
         aug_contrast: Contrast augmentation range (applied if domain_rand=True).
         aug_noise_std: Gaussian noise standard deviation (applied if domain_rand=True).
@@ -334,6 +337,8 @@ def build_env_fn(
         stall_max_steps: Terminate after this many consecutive stalled steps (default: 50).
         stall_penalty: Penalty when episode terminates due to stall (default: 20.0).
         car_name: Name identifier for the car in the simulator.
+        mask_hsv_lower: HSV lower bound for mask extraction (for obs_mode="mask").
+        mask_hsv_upper: HSV upper bound for mask extraction (for obs_mode="mask").
 
     Returns:
         A callable that returns a new environment instance when called.
@@ -421,6 +426,8 @@ def build_env_fn(
             aug_contrast=aug_contrast,
             aug_noise_std=aug_noise_std,
             aug_color_jitter=aug_color_jitter,
+            mask_hsv_lower=mask_hsv_lower,
+            mask_hsv_upper=mask_hsv_upper,
         )
 
         return env

@@ -23,6 +23,14 @@ def _sanitize_name(name: str) -> str:
     return "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "_" for ch in name).strip("_")
 
 
+def _parse_hsv_tuple(hsv_str: str) -> tuple:
+    """Parse HSV string like '0,0,0' into tuple (0, 0, 0)."""
+    parts = hsv_str.strip().split(",")
+    if len(parts) != 3:
+        raise ValueError(f"HSV must have 3 values, got: {hsv_str}")
+    return tuple(int(p.strip()) for p in parts)
+
+
 def _next_jetracer_id(*, models_root: str, log_root: str, prefix: str = "JetRacer") -> str:
     """Return a run id like `JetRacer_1`, `JetRacer_2`, ...
 
@@ -157,9 +165,24 @@ def parse_args() -> argparse.Namespace:
         "--obs-mode",
         type=str,
         default="mix",
-        choices=["auto", "raw", "perspective", "mix"],
+        choices=["auto", "raw", "perspective", "mix", "mask"],
         help="Observation mode: 'auto' (use --perspective-transform flag), 'raw' (original image only), "
-             "'perspective' (bird's-eye view only), 'mix' (stack raw+perspective vertically, compress to 84x84).",
+             "'perspective' (bird's-eye view only), 'mix' (stack raw+perspective vertically, compress to 84x84), "
+             "'mask' (extract binary mask using HSV thresholds).",
+    )
+    
+    # Mask mode HSV thresholds
+    parser.add_argument(
+        "--mask-hsv-lower",
+        type=str,
+        default="0,0,0",
+        help="HSV lower bound for mask extraction (comma-separated, e.g. '0,0,0'). Only used when obs-mode=mask.",
+    )
+    parser.add_argument(
+        "--mask-hsv-upper",
+        type=str,
+        default="180,50,80",
+        help="HSV upper bound for mask extraction (comma-separated, e.g. '180,50,80'). Only used when obs-mode=mask.",
     )
 
     # Loading existing policy for continued training
@@ -422,6 +445,10 @@ def main() -> None:
             raise RuntimeError("Missing dependency: stable-baselines3. Install it, then re-run.") from e
         raise
 
+    # Parse mask HSV thresholds
+    mask_hsv_lower = _parse_hsv_tuple(getattr(args, "mask_hsv_lower", "0,0,0"))
+    mask_hsv_upper = _parse_hsv_tuple(getattr(args, "mask_hsv_upper", "180,50,80"))
+    
     train_env = DummyVecEnv(
         [
             build_env_fn(
@@ -463,6 +490,8 @@ def main() -> None:
                 stall_max_steps=int(getattr(args, "stall_max_steps", 50)),
                 stall_penalty=float(getattr(args, "stall_penalty", 20.0)),
                 car_name=str(getattr(args, "run_id", "JetRacerAgent")),
+                mask_hsv_lower=mask_hsv_lower,
+                mask_hsv_upper=mask_hsv_upper,
             )
         ]
     )
@@ -582,6 +611,8 @@ def main() -> None:
             stall_max_steps=int(getattr(args, "stall_max_steps", 50)),
             stall_penalty=float(getattr(args, "stall_penalty", 20.0)),
             car_name=str(getattr(args, "run_id", "JetRacerAgent")) + "_eval",
+            mask_hsv_lower=mask_hsv_lower,
+            mask_hsv_upper=mask_hsv_upper,
         )
         
         # Create callback with lazy env initialization
