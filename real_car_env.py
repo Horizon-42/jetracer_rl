@@ -50,11 +50,11 @@ class VisualCTEEstimator:
         image_height: int = 240,
         max_cte: float = 3.0,
         # Color thresholds for track detection (HSV)
-        track_lower: Tuple[int, int, int] = (0, 0, 0),
-        track_upper: Tuple[int, int, int] = (180, 50, 80),
+        track_lower: Tuple[int, int, int] = (0, 100, 100),
+        track_upper: Tuple[int, int, int] = (180, 255, 255),
         # Color thresholds for centerline detection (HSV)
-        centerline_lower: Tuple[int, int, int] = (20, 100, 100),
-        centerline_upper: Tuple[int, int, int] = (30, 255, 255),
+        centerline_lower: Tuple[int, int, int] = (10, 100, 100),
+        centerline_upper: Tuple[int, int, int] = (25, 255, 255),
     ):
         """Initialize the CTE estimator.
         
