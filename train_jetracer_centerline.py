@@ -164,7 +164,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--obs-mode",
         type=str,
-        default="mix",
+        default="mask",
         choices=["auto", "raw", "perspective", "mix", "mask"],
         help="Observation mode: 'auto' (use --perspective-transform flag), 'raw' (original image only), "
              "'perspective' (bird's-eye view only), 'mix' (stack raw+perspective vertically, compress to 84x84), "
@@ -175,13 +175,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mask-hsv-lower",
         type=str,
-        default="0,0,0",
+        default="10, 100, 100",
         help="HSV lower bound for mask extraction (comma-separated, e.g. '0,0,0'). Only used when obs-mode=mask.",
     )
     parser.add_argument(
         "--mask-hsv-upper",
         type=str,
-        default="180,50,80",
+        default="25, 255, 255",
         help="HSV upper bound for mask extraction (comma-separated, e.g. '180,50,80'). Only used when obs-mode=mask.",
     )
 
