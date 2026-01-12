@@ -99,6 +99,8 @@ class VisualCTEEstimator:
         elif self.method == "centerline_tracking":
             return self._estimate_by_centerline(frame_bgr)
         else:
+            # Unknown method, set mask to None
+            self.last_mask_image = None
             return 0.0, 0.0
     
     def _estimate_by_edges(self, frame_bgr: np.ndarray) -> Tuple[float, float]:
