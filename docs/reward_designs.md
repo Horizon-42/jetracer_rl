@@ -6,14 +6,11 @@ This document summarizes the reward functions available for JetRacer RL training
 
 ## Overview
 
-| Reward Type | Key Features | Best For |
-|------------|--------------|----------|
-| `base` | Progress + speed + centerline | General racing |
-| `track_limit` | Base + explicit off-track penalties | Strict track boundaries |
-| `deepracer` | Discrete centerline bands | AWS DeepRacer compatibility |
-| `centerline_v2` | Centerline + speed + smoothness + caution | Balanced performance |
-| `centerline_v3` | Centerline + speed + strong anti-stall | Fast training, prevent stopping |
-| `centerline_v4` | Centerline + speed + smoothness + anti-stall | Smooth, fast, stable |
+| Reward Type     | Key Features                           | Formula                                                                                                 | Best For                        |
+| --------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `base`          | Progress + speed + centerline          | `w_progress*progress + w_speed*speed - w_center*\|cte\| - w_steer*steering² - w_steer_rate*steer_rate²` | General racing                  |
+| `track_limit`   | Base + explicit off-track penalties    | `base + (if \|cte\|>max_cte: -offtrack_step_penalty)`                                                   | Strict track boundaries         |
+| `centerline_v3` | Centerline + speed + strong anti-stall | `alive_bonus + w_center*center_score + w_speed*speed - w_stall*max(0,min_speed-speed)`                  | Fast training, prevent stopping |
 
 ---
 
