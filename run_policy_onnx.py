@@ -98,13 +98,13 @@ def _get_perspective_transform_matrix(cam_width: int, cam_height: int):
     return matrix, (design_width, design_height)
 
 
-def preprocess_image(frame_bgr, model_width, model_height, obs_mode="raw", perspective_matrix=None, perspective_size=None):
+def preprocess_image(frame_bgr, model_width, model_height, obs_mode="raw", perspective_matrix=None, perspective_size=None, mask_hsv_lower=None, mask_hsv_upper=None):
     """
     Preprocess camera frame for model inference.
     
     This matches the preprocessing pipeline used in training (donkey_rl.obs_preprocess.ObsPreprocess):
     1. Apply perspective transformation (if needed by obs_mode)
-    2. Combine images based on obs_mode (raw, perspective, or mix)
+    2. Combine images based on obs_mode (raw, perspective, mix, or mask)
     3. Resize to target dimensions
     4. Convert BGR to RGB
     5. Convert HWC to CHW format (channels-first)
@@ -114,12 +114,15 @@ def preprocess_image(frame_bgr, model_width, model_height, obs_mode="raw", persp
         frame_bgr: Input frame in BGR format (HWC uint8)
         model_width: Target width for model input
         model_height: Target height for model input
-        obs_mode: Observation mode ('raw', 'perspective', 'mix')
+        obs_mode: Observation mode ('raw', 'perspective', 'mix', 'mask')
             - 'raw': Use only raw camera image
             - 'perspective': Use only perspective-transformed (bird's-eye view) image
             - 'mix': Stack raw + perspective vertically, then resize to target dimensions
+            - 'mask': Extract binary mask using HSV color thresholds (for track segmentation)
         perspective_matrix: Precomputed perspective transform matrix (3x3)
         perspective_size: Output size for perspective transform (width, height)
+        mask_hsv_lower: HSV lower bound for mask extraction (for obs_mode="mask"), shape (3,)
+        mask_hsv_upper: HSV upper bound for mask extraction (for obs_mode="mask"), shape (3,)
     
     Returns:
         Preprocessed image ready for model inference (1CHW float32 in [0, 1])
@@ -151,6 +154,32 @@ def preprocess_image(frame_bgr, model_width, model_height, obs_mode="raw", persp
         raw_resized = cv2.resize(frame_bgr, perspective_size, interpolation=cv2.INTER_AREA)
         # Stack vertically: [raw on top, perspective on bottom]
         to_resize = np.vstack([raw_resized, transformed])
+    elif obs_mode == "mask":
+        # Extract binary mask using HSV thresholds
+        # This matches the implementation in donkey_rl.obs_preprocess.ObsPreprocess
+        # First convert BGR to RGB (since obs_preprocess uses RGB->HSV)
+        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        # Convert RGB to HSV (OpenCV uses H: 0-180, S: 0-255, V: 0-255)
+        hsv = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2HSV)
+        # Extract mask using HSV thresholds
+        if mask_hsv_lower is None:
+            mask_hsv_lower = np.array([0, 100, 100], dtype=np.uint8)
+        else:
+            mask_hsv_lower = np.array(mask_hsv_lower, dtype=np.uint8)
+        if mask_hsv_upper is None:
+            mask_hsv_upper = np.array([180, 255, 255], dtype=np.uint8)
+        else:
+            mask_hsv_upper = np.array(mask_hsv_upper, dtype=np.uint8)
+        mask = cv2.inRange(hsv, mask_hsv_lower, mask_hsv_upper)
+        # Resize mask to target dimensions (using INTER_AREA for downsampling)
+        mask_resized = cv2.resize(mask, (model_width, model_height), interpolation=cv2.INTER_AREA)
+        # Stack single channel to 3 channels (for CNN policy compatibility)
+        mask_3ch = np.stack([mask_resized, mask_resized, mask_resized], axis=2)
+        # Convert to CHW format (channels-first)
+        img = mask_3ch.transpose((2, 0, 1))
+        # Normalize to [0, 1] range and add batch dimension
+        img = np.ascontiguousarray(img, dtype=np.float32) / 255.0
+        return img[np.newaxis, ...]
     else:
         # Fallback to raw
         to_resize = frame_bgr
@@ -273,9 +302,26 @@ def main():
         "--obs-mode",
         type=str,
         default="mix",
-        choices=["auto", "raw", "perspective", "mix"],
+        choices=["auto", "raw", "perspective", "mix", "mask"],
         help="Observation mode: 'auto' (use --perspective-transform flag), 'raw' (original image only), "
-             "'perspective' (bird's-eye view only), 'mix' (stack raw+perspective vertically, compress to 84x84).",
+             "'perspective' (bird's-eye view only), 'mix' (stack raw+perspective vertically, compress to 84x84), "
+             "'mask' (extract binary mask using HSV color thresholds).",
+    )
+    parser.add_argument(
+        "--mask-hsv-lower",
+        type=int,
+        nargs=3,
+        default=[0, 0, 0],
+        metavar=("H", "S", "V"),
+        help="HSV lower bound for mask extraction (for obs_mode='mask'). Default: 0 0 0",
+    )
+    parser.add_argument(
+        "--mask-hsv-upper",
+        type=int,
+        nargs=3,
+        default=[180, 50, 80],
+        metavar=("H", "S", "V"),
+        help="HSV upper bound for mask extraction (for obs_mode='mask'). Default: 180 50 80",
     )
     parser.add_argument("--fps", type=float, default=20.0, help="Target FPS for control loop")
     parser.add_argument("--throttle-gain", type=float, default=0.5, help="Throttle gain: output = gain * throttle (default: 1.0)")
@@ -317,6 +363,10 @@ def main():
         )
         print(f"Observation mode: {obs_mode}")
         print(f"  - Perspective transform: matrix shape={perspective_matrix.shape}, output size={perspective_size}")
+    elif obs_mode == "mask":
+        print(f"Observation mode: {obs_mode}")
+        print(f"  - HSV lower bound: {args.mask_hsv_lower}")
+        print(f"  - HSV upper bound: {args.mask_hsv_upper}")
     else:
         print(f"Observation mode: {obs_mode} (no perspective transform)")
 
@@ -382,6 +432,8 @@ def main():
                 obs_mode=obs_mode,
                 perspective_matrix=perspective_matrix,
                 perspective_size=perspective_size,
+                mask_hsv_lower=args.mask_hsv_lower,
+                mask_hsv_upper=args.mask_hsv_upper,
             )
             action_raw = sess.run(None, {input_name: obs})[0].flatten()
 
