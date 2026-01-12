@@ -329,6 +329,7 @@ class RealJetRacerEnv(gym.Env):
         self._last_cte = 0.0
         self._last_speed = 0.0
         self._last_confidence = 0.0
+        self._last_mask_image: Optional[np.ndarray] = None
         
     def _init_perspective_transform(self):
         """Initialize perspective transform matrix (same as training)."""
@@ -415,6 +416,8 @@ class RealJetRacerEnv(gym.Env):
             # Extract HSV mask from image
             hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
             mask = cv2.inRange(hsv, self.mask_hsv_lower, self.mask_hsv_upper)
+            # Store full-size mask for visualization
+            self._last_mask_image = mask.copy()
             # Resize mask to observation size
             mask_resized = cv2.resize(mask, (self.obs_width, self.obs_height), interpolation=cv2.INTER_AREA)
             # Stack single channel to 3 channels (for CNN policy compatibility)
