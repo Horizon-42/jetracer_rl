@@ -35,3 +35,25 @@ The PPO model configuration used in `train_jetracer_centerline.py`:
 | `gae_lambda` | `0.95` |
 | `clip_range` | `0.1` |
 | `ent_coef` | `0.0` |
+
+# Project Structure
+
+## Key Files
+
+- **train_jetracer_centerline.py** - Main training script for PPO policy training
+- **run_policy_onnx.py** - Inference script for running ONNX models on Jetson Nano
+- **run_policy.py** - Inference script for running SB3 models
+- **export_sb3_ppo_to_onnx.py** - Converts Stable-Baselines3 PPO models to ONNX format
+- **real_car_env.py** - Gym environment for real JetRacer hardware training
+- **cte_estimator.py** - Cross-track error (CTE) estimation from camera images
+- **setup.sh** - Environment setup script
+- **requirements.txt** - Python dependencies
+
+## Key Directories
+
+- **donkey_rl/** - Main RL package containing environment, rewards, callbacks, and wrappers
+- **tests/** - Unit tests for components
+- **docs/** - Documentation and design notes
+- **notebooks/** - Jupyter notebooks for analysis and testing
+- **experiments/** - Experiment scripts and utilities
+- **real_data_process/** - Utilities for processing real car camera data
